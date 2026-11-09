@@ -1,0 +1,98 @@
+name: WLED build
+
+# Compiles WLED from the official source (wled/WLED) for the sign and tree controllers and makes a release
+# "wled-v<version>" in this repo with full USB images and over-the-air images:
+#   wled-esp32-factory.bin / wled-esp32-ota.bin                 env esp32dev (release name "ESP32", what both run now)
+#   wled-esp32-wrover-factory.bin / wled-esp32-wrover-ota.bin   env esp32_wrover (uses PSRAM)
+# Run it from the Actions tab (pick the WLED version), or push a tag like wled-v16.0.1.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "WLED version to build (a tag in wled/WLED without the v)"
+        default: "16.0.1"
+  push:
+    tags: ["wled-v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - env: esp32dev
+            out: wled-esp32
+          - env: esp32_wrover
+            out: wled-esp32-wrover
+    steps:
+      - name: Version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/wled-v* ]]; then v="${GITHUB_REF_NAME#wled-v}"; else v="${{ inputs.version }}"; fi
+          echo "WLED_VERSION=$v" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: wled/WLED
+          ref: v${{ env.WLED_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Build the web UI
+        run: npm ci && npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-wled-${{ env.WLED_VERSION }}-${{ matrix.env }}
+
+      - name: Install PlatformIO
+        run: pip install -r requirements.txt && pip install esptool==4.8.1
+
+      - name: Build ${{ matrix.env }}
+        run: pio run -e ${{ matrix.env }}
+
+      - name: Package
+        run: |
+          B=.pio/build/${{ matrix.env }}
+          BOOT_APP0=$(find ~/.platformio/packages -path '*tools/partitions/boot_app0.bin' | head -1)
+          test -n "$BOOT_APP0"
+          mkdir -p out
+          esptool.py --chip esp32 merge_bin -o out/${{ matrix.out }}-factory.bin \
+            --flash_mode keep --flash_freq keep --flash_size keep \
+            0x1000 $B/bootloader.bin 0x8000 $B/partitions.bin 0xe000 "$BOOT_APP0" 0x10000 $B/firmware.bin
+          cp $B/firmware.bin out/${{ matrix.out }}-ota.bin
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.out }}
+          path: out/*.bin
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/wled-v* ]]; then v="${GITHUB_REF_NAME#wled-v}"; else v="${{ inputs.version }}"; fi
+          echo "WLED_VERSION=$v" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: wled-v${{ env.WLED_VERSION }}
+          name: WLED ${{ env.WLED_VERSION }}
+          body: Built from https://github.com/wled/WLED/tree/v${{ env.WLED_VERSION }} (unchanged source).
+          files: out/*.bin
+          make_latest: true

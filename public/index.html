@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Lickety Split</title>
+<meta name="description" content="Flash and update the ESP32 devices: Matrixinator, AirPlay receiver, WLED.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="vendor/esp-web-tools/install-button.js"></script>
+</head>
+<body>
+<main class="wrap">
+ <header class="top">
+  <div class="title"><h1>Lickety Split</h1><span>Flash and update the ESP32 devices</span></div>
+  <div class="topacts"><button type="button" id="refresh">Check for new builds</button><button type="button" id="setBtn" aria-label="Settings" title="Settings">⚙</button></div>
+ </header>
+ <p class="msg" id="msg" role="status"></p>
+
+ <section class="box">
+  <h2>Flash over USB</h2>
+  <p class="note" id="usbNote">Plug the device into this computer with a USB cable, then press Install. Needs Chrome or Edge on a computer (not a phone or Safari). A first install erases the device; Wi-Fi can be set right after flashing.</p>
+  <div class="cards" id="cards"></div>
+ </section>
+
+ <section class="box">
+  <h2>Update over Wi-Fi</h2>
+  <p class="note">Sends the newest build to a device that's already running. Settings on the device are kept. The device restarts when it's done.</p>
+  <div class="tablewrap"><table class="devs"><thead><tr><th>Device</th><th>Firmware</th><th>Running</th><th>Newest</th><th></th></tr></thead><tbody id="devs"></tbody></table></div>
+  <form class="add" id="addForm">
+   <label>Name<input id="aName" type="text" placeholder="Living room screen" maxlength="60"></label>
+   <label>Host name or IP<input id="aHost" type="text" placeholder="192.168.215.50" autocapitalize="off" spellcheck="false"></label>
+   <label>Runs<select id="aFw"></select></label>
+   <button type="submit">Add device</button>
+  </form>
+ </section>
+</main>
+
+<dialog id="setDlg" aria-labelledby="setTitle">
+ <form method="dialog" id="setForm">
+  <h2 id="setTitle">Settings</h2>
+  <label>GitHub owner (user or organization the firmware repos belong to)<input id="sOwner" type="text" autocapitalize="off" spellcheck="false" placeholder="your-github-name"></label>
+  <p class="note" id="sRepos"></p>
+  <p class="note" id="sToken"></p>
+  <div class="acts"><span class="msg" id="sMsg" role="status"></span><button type="button" id="sCancel">Cancel</button><button type="submit" class="pri">Save</button></div>
+ </form>
+</dialog>
+<script src="app.js"></script>
+</body>
+</html>

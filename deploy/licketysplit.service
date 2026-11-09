@@ -1,0 +1,19 @@
+[Unit]
+Description=Lickety Split (flash and update the ESP32 devices)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=licketysplit
+WorkingDirectory=/opt/licketysplit
+EnvironmentFile=/etc/licketysplit.env
+ExecStart=/usr/bin/node /opt/licketysplit/server.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/licketysplit
+
+[Install]
+WantedBy=multi-user.target

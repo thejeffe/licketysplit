@@ -1,0 +1,1 @@
+esp-web-tools 10.4.0 from https://unpkg.com/esp-web-tools@10.4.0/dist/web/ (Apache-2.0)
