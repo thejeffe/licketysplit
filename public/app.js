@@ -33,7 +33,7 @@ function renderCards() {
 
 // ---------- Wi-Fi devices ----------
 function renderDevs() {
-  $('aFw').innerHTML = S.firmware.filter((f) => f.id !== 'wled-esp32-wrover').map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
+  $('aFw').innerHTML = S.firmware.map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
   $('devs').innerHTML = S.devices.map((d) => {
     const f = S.firmware.find((x) => x.id === d.fw) || {}, cur = f.current, p = probes[d.id], run = S.ota[d.id];
     const running = !p ? '…' : p.online ? `<span class="ver">${esc(p.version || '?')}</span><small>${esc(p.detail)}</small>` : `<span class="off">offline</span><small>${esc(p.detail)}</small>`;
