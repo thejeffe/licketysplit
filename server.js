@@ -63,11 +63,27 @@ function saveConf() {
 function current(id) { try { return JSON.parse(fs.readFileSync(path.join(FW_DIR, id, 'current.json'), 'utf8')); } catch (e) { return null; } }
 const versionOf = (tag) => tag.replace(/^(signinator-|wled-)?v/, '');
 
+// GitHub allows 60 API requests an hour without a token. Release lists are asked with ETags (an unchanged
+// answer, 304, doesn't count) and public files come from the normal download links (not the API).
+const etags = {};   // url -> { etag, body }
 async function gh(url, accept) {
   const headers = { 'User-Agent': 'licketysplit', Accept: accept || 'application/vnd.github+json' };
   if (CFG.token) headers.Authorization = 'Bearer ' + CFG.token;
+  const cached = !accept && etags[url];
+  if (cached) headers['If-None-Match'] = cached.etag;
   const r = await fetch(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(120000) });
-  if (!r.ok) throw new Error(`GitHub ${r.status} for ${url.replace('https://api.github.com', '')}`);
+  if (r.status === 304 && cached) return { json: async () => cached.body };
+  if (!r.ok) {
+    const left = r.headers.get('x-ratelimit-remaining'), reset = +r.headers.get('x-ratelimit-reset');
+    if ((r.status === 403 || r.status === 429) && left === '0')
+      throw new Error(`GitHub's limit for checks without a token is used up until ${new Date(reset * 1000).toLocaleTimeString()}.`);
+    throw new Error(`GitHub ${r.status} for ${url.replace('https://api.github.com', '')}`);
+  }
+  if (!accept && r.headers.get('etag')) {
+    const body = await r.json();
+    etags[url] = { etag: r.headers.get('etag'), body };
+    return { json: async () => body };
+  }
   return r;
 }
 
@@ -86,7 +102,11 @@ async function refreshOne(fw) {
   for (const kind of ['factory', 'ota']) {
     const a = rel.assets.find((x) => x.name === fw[kind]);
     if (!a) continue;
-    const buf = Buffer.from(await (await gh(a.url, 'application/octet-stream')).arrayBuffer());
+    // public repos: the plain download link (no API limit); private: the API with the token
+    const r = CFG.token ? await gh(a.url, 'application/octet-stream')
+      : await fetch(a.browser_download_url, { headers: { 'User-Agent': 'licketysplit' }, redirect: 'follow', signal: AbortSignal.timeout(120000) });
+    if (!r.ok) throw new Error(`Download of ${a.name} failed: HTTP ${r.status}`);
+    const buf = Buffer.from(await r.arrayBuffer());
     if (buf.length !== a.size) throw new Error(`${a.name}: got ${buf.length} bytes, expected ${a.size}`);
     fs.writeFileSync(path.join(dir, a.name), buf);
     files[kind] = { name: a.name, size: a.size, sha256: crypto.createHash('sha256').update(buf).digest('hex') };
