@@ -44,7 +44,7 @@ function renderDevs() {
     return `<div class="row dev" data-id="${esc(d.id)}">
       <div><b>${esc(d.name)}</b><small>${esc(d.host)}${p && p.detail ? ' · ' + esc(p.detail) : ''}</small></div>
       <div><small>${esc(f.name || d.fw)}</small>${running} → ${newest}</div>
-      <div class="acts-r"><button type="button" class="small ${isNew ? 'pri' : ''}" data-act="ota" ${!cur || !p || !p.online || busy ? 'disabled' : ''}>${busy ? 'Updating…' : 'Update'}</button><button type="button" class="small" data-act="del" title="Remove from this list" aria-label="Remove ${esc(d.name)}">✕</button></div>
+      <div class="acts-r"><button type="button" class="small ${isNew ? 'pri' : ''}" data-act="ota" ${!cur || !p || !p.online || busy ? 'disabled' : ''}>${busy ? 'Updating…' : 'Update'}</button><button type="button" class="small" data-act="restart" title="Restart the device" ${!p || !p.online || busy ? 'disabled' : ''}>Restart</button><button type="button" class="small" data-act="del" title="Remove from this list" aria-label="Remove ${esc(d.name)}">✕</button></div>
       ${runLine}</div>`;
   }).join('') || '<div class="empty">No devices yet. Add one below.</div>';
 }
@@ -68,6 +68,14 @@ $('devs').addEventListener('click', async (ev) => {
     if (!confirm(`Remove ${d.name} from the list? (Nothing on the device changes.)`)) return;
     await api('DELETE', `api/devices/${id}`).catch((e) => say($('msg'), e.message, 'err'));
     return load();
+  }
+  if (b.dataset.act === 'restart') {
+    if (!confirm(`Restart ${d.name} (${d.host})? It's back in a few seconds.`)) return;
+    b.disabled = true;
+    try { await api('POST', `api/devices/${id}/restart`); say($('msg'), `${d.name} is restarting.`, 'ok'); }
+    catch (e) { say($('msg'), `Couldn't restart ${d.name}: ${e.message}`, 'err'); }
+    setTimeout(probeAll, 12000);
+    return;
   }
   if (b.dataset.act === 'ota') {
     const f = S.firmware.find((x) => x.id === d.fw);

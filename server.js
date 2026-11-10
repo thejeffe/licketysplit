@@ -195,6 +195,17 @@ async function probe(dev) {
   return out;
 }
 
+// Restart a device: WLED and Matrixinator take WLED's {"rb":true}; the AirPlay receiver has its own endpoint.
+async function restart(dev) {
+  const fw = fwById(dev.fw);
+  const air = fw && fw.probe === 'airplay';
+  const r = await fetch(`http://${dev.host}${air ? '/api/system/restart' : '/json/state'}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: air ? '{}' : '{"rb":true}', signal: AbortSignal.timeout(6000),
+  }).catch((e) => { if (e.name === 'TimeoutError' || /terminated|socket|reset/i.test(String(e.cause || e.message))) return { ok: true }; throw e; });
+  if (!r.ok) throw new Error(`${dev.host} answered ${r.status}`);   // (a device may hang up as it restarts: that's fine)
+  log(`Restarted ${dev.name} (${dev.host})`);
+}
+
 const otaRuns = {}; // device id -> { state: 'sending' | 'done' | 'error', msg, at }
 async function ota(dev) {
   const fw = fwById(dev.fw), cur = fw && current(fw.id);
@@ -255,13 +266,14 @@ const server = http.createServer(async (req, res) => {
       const d = Object.assign({ id: 'd' + crypto.randomBytes(4).toString('hex') }, cleanDevice(await readBody(req)));
       conf.devices.push(d); saveConf(); return send(res, 200, d);
     }
-    let m = p.match(/^\/api\/devices\/([\w-]{1,40})(\/probe|\/ota)?$/);
+    let m = p.match(/^\/api\/devices\/([\w-]{1,40})(\/probe|\/ota|\/restart)?$/);
     if (m) {
       const dev = conf.devices.find((d) => d.id === m[1]);
       if (!dev) return send(res, 404, { error: 'No such device.' });
       if (!m[2] && req.method === 'PUT') { Object.assign(dev, cleanDevice(await readBody(req))); saveConf(); return send(res, 200, dev); }
       if (!m[2] && req.method === 'DELETE') { conf.devices = conf.devices.filter((d) => d !== dev); saveConf(); return send(res, 200, { ok: true }); }
       if (m[2] === '/probe' && req.method === 'GET') return send(res, 200, await probe(dev));
+      if (m[2] === '/restart' && req.method === 'POST') { await restart(dev); return send(res, 200, { ok: true }); }
       if (m[2] === '/ota' && req.method === 'POST') {
         if (otaRuns[dev.id] && otaRuns[dev.id].state === 'sending') return send(res, 409, { error: 'An update is already running for this device.' });
         otaRuns[dev.id] = { state: 'sending', msg: 'Sending the update…', at: Date.now() };
