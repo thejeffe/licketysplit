@@ -18,4 +18,4 @@ systemctl restart licketysplit
 sleep 1
 systemctl --no-pager --lines=5 status licketysplit || true
 echo
-echo "Lickety Split is on 127.0.0.1:8110 (https://licketysplit.example.com through Caddy)."
+echo "Lickety Split is on 127.0.0.1:8110 (put it behind an HTTPS reverse proxy for USB flashing)."

@@ -43,11 +43,7 @@ const fwById = (id) => FIRMWARE.find((f) => f.id === id);
 // ---------- saved settings ----------
 const DEFAULT_CONF = {
   owner: '',
-  devices: [
-    { id: 'sign', name: 'Signinator sign', host: 'sign.example.com', fw: 'wled-esp32' },
-    { id: 'tree', name: 'Treeinator tree', host: 'tree.example.com', fw: 'wled-esp32' },
-    { id: 'marantz', name: 'Marantz Stereo', host: '192.168.1.36', fw: 'airplay' },
-  ],
+  devices: [],          // added on the page; saved in DATA_DIR/config.json
 };
 let conf;
 function loadConf() {

@@ -1,6 +1,6 @@
 # Lickety Split
 
-https://licketysplit.example.com: a web page to flash and update the ESP32 devices.
+A web page to flash and update the ESP32 devices.
 
 - **Flash over USB** (Chrome/Edge on a computer): ESP Web Tools 10.4.0, served from `public/vendor`.
 - **Update over Wi-Fi**: the server pushes the app image to the device's OTA endpoint
