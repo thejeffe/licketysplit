@@ -88,37 +88,63 @@ async function gh(url, accept) {
 }
 
 let refreshing = null, lastRefresh = { at: 0, results: {} };
+// Without a token: the public release feed (releases.atom) and the normal download links, which don't use
+// GitHub's API limit (60 an hour per internet address). With GITHUB_TOKEN: the API (works for private repos).
+async function latestRelease(repo, fw) {
+  if (CFG.token) {
+    const rels = await (await gh(`https://api.github.com/repos/${repo}/releases?per_page=30`)).json();
+    const rel = rels.find((r) => !r.draft && fw.tag.test(r.tag_name) && r.assets.some((a) => a.name === fw.factory));
+    if (!rel) return null;
+    const asset = (name) => { const a = rel.assets.find((x) => x.name === name); return a && { url: a.url, size: a.size, api: true }; };
+    return { tag: rel.tag_name, published: rel.published_at, url: rel.html_url, factory: asset(fw.factory), ota: asset(fw.ota) };
+  }
+  const r = await fetch(`https://github.com/${repo}/releases.atom`, { headers: { 'User-Agent': 'licketysplit' }, signal: AbortSignal.timeout(30000) });
+  if (!r.ok) throw new Error(`GitHub ${r.status} for ${repo}/releases.atom`);
+  const xml = await r.text();
+  for (const e of xml.split('<entry>').slice(1)) {
+    const tag = decodeURIComponent((/\/releases\/tag\/([^"]+)"/.exec(e) || [])[1] || '');
+    if (!tag || !fw.tag.test(tag)) continue;
+    const dl = (name) => ({ url: `https://github.com/${repo}/releases/download/${encodeURIComponent(tag)}/${name}` });
+    return { tag, published: (/<updated>([^<]+)</.exec(e) || [])[1], url: `https://github.com/${repo}/releases/tag/${encodeURIComponent(tag)}`,
+      factory: dl(fw.factory), ota: dl(fw.ota) };
+  }
+  return null;
+}
+async function download(a) {
+  const r = a.api ? await gh(a.url, 'application/octet-stream')
+    : await fetch(a.url, { headers: { 'User-Agent': 'licketysplit' }, redirect: 'follow', signal: AbortSignal.timeout(120000) });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`Download failed: HTTP ${r.status} for ${a.url.replace(/^https:\/\/[^/]+/, '')}`);
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (a.size != null && buf.length !== a.size) throw new Error(`Got ${buf.length} bytes, expected ${a.size}`);
+  return buf;
+}
+
 async function refreshOne(fw) {
   if (!conf.owner) return { ok: false, error: 'Set the GitHub owner first.' };
   const repo = fw.repo.replace('{owner}', conf.owner);
-  const rels = await (await gh(`https://api.github.com/repos/${repo}/releases?per_page=30`)).json();
-  const rel = rels.find((r) => !r.draft && fw.tag.test(r.tag_name) && r.assets.some((a) => a.name === fw.factory));
+  const rel = await latestRelease(repo, fw);
   if (!rel) return { ok: false, error: `No release in ${repo} has ${fw.factory} yet.` };
   const cur = current(fw.id);
-  if (cur && cur.tag === rel.tag_name) return { ok: true, tag: rel.tag_name, changed: false };
-  const dir = path.join(FW_DIR, fw.id, rel.tag_name);
-  fs.mkdirSync(dir, { recursive: true });
+  if (cur && cur.tag === rel.tag) return { ok: true, tag: rel.tag, changed: false };
+  const dir = path.join(FW_DIR, fw.id, rel.tag);
   const files = {};
   for (const kind of ['factory', 'ota']) {
-    const a = rel.assets.find((x) => x.name === fw[kind]);
-    if (!a) continue;
-    // public repos: the plain download link (no API limit); private: the API with the token
-    const r = CFG.token ? await gh(a.url, 'application/octet-stream')
-      : await fetch(a.browser_download_url, { headers: { 'User-Agent': 'licketysplit' }, redirect: 'follow', signal: AbortSignal.timeout(120000) });
-    if (!r.ok) throw new Error(`Download of ${a.name} failed: HTTP ${r.status}`);
-    const buf = Buffer.from(await r.arrayBuffer());
-    if (buf.length !== a.size) throw new Error(`${a.name}: got ${buf.length} bytes, expected ${a.size}`);
-    fs.writeFileSync(path.join(dir, a.name), buf);
-    files[kind] = { name: a.name, size: a.size, sha256: crypto.createHash('sha256').update(buf).digest('hex') };
+    if (!rel[kind]) continue;
+    const buf = await download(rel[kind]);
+    if (!buf) { if (kind === 'factory') return { ok: false, error: `${rel.tag} has no ${fw.factory}.` }; continue; }
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, fw[kind]), buf);
+    files[kind] = { name: fw[kind], size: buf.length, sha256: crypto.createHash('sha256').update(buf).digest('hex') };
   }
-  const info = { tag: rel.tag_name, version: versionOf(rel.tag_name), published: rel.published_at, url: rel.html_url, files, fetched: new Date().toISOString() };
+  const info = { tag: rel.tag, version: versionOf(rel.tag), published: rel.published, url: rel.url, files, fetched: new Date().toISOString() };
   fs.writeFileSync(path.join(FW_DIR, fw.id, 'current.json'), JSON.stringify(info, null, 1));
   // keep the newest 3 versions
   const old = fs.readdirSync(path.join(FW_DIR, fw.id), { withFileTypes: true }).filter((d) => d.isDirectory())
     .map((d) => ({ n: d.name, t: fs.statSync(path.join(FW_DIR, fw.id, d.name)).mtimeMs })).sort((a, b) => b.t - a.t).slice(3);
   for (const o of old) fs.rmSync(path.join(FW_DIR, fw.id, o.n), { recursive: true, force: true });
-  log(`${fw.id}: now ${rel.tag_name}`);
-  return { ok: true, tag: rel.tag_name, changed: true };
+  log(`${fw.id}: now ${rel.tag}`);
+  return { ok: true, tag: rel.tag, changed: true };
 }
 function refreshAll() {
   if (refreshing) return refreshing;
