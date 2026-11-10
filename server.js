@@ -167,9 +167,11 @@ async function ota(dev) {
   }
   log(`OTA ${dev.name} (${dev.host}) <- ${fw.id} ${cur.tag}, ${bin.length} bytes`);
   const r = await fetch(`http://${dev.host}${fw.otaPath}`, { method: 'POST', body, headers: { 'Content-Type': type }, signal: AbortSignal.timeout(180000) });
-  const text = (await r.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
-  if (!r.ok || /update failed|failed!/i.test(text)) throw new Error(`${dev.host} answered ${r.status}: ${text || '(no text)'}`);
-  return `${dev.name} took ${fw.name} ${cur.version} and is restarting. ${text}`.trim();
+  const raw = await r.text();
+  // devices answer with plain text or a whole web page: keep only readable words
+  const text = raw.replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (!r.ok || /update failed|failed!/i.test(text)) throw new Error(`${dev.host} answered ${r.status}${text ? ': ' + text : ''}`);
+  return `${fw.name} ${cur.version} sent to ${dev.name}; it restarts by itself.`;
 }
 
 // ---------- HTTP ----------

@@ -42,8 +42,8 @@ function renderDevs() {
     const busy = run && run.state === 'sending';
     return `<tr data-id="${esc(d.id)}"><td><b>${esc(d.name)}</b><small>${esc(d.host)}</small></td><td>${esc(f.name || d.fw)}</td>
       <td>${running}</td><td class="ver ${isNew ? 'new' : ''}">${esc(newest)}${isNew ? ' ↑' : ''}</td>
-      <td class="acts"><button type="button" class="small ${isNew ? 'pri' : ''}" data-act="ota" ${!cur || !p || !p.online || busy ? 'disabled' : ''}>${busy ? 'Updating…' : 'Update'}</button><button type="button" class="small" data-act="del" title="Remove from this list">✕</button>
-      ${run ? `<div class="run ${esc(run.state)}">${esc(run.msg)}</div>` : ''}</td></tr>`;
+      <td class="acts"><button type="button" class="small ${isNew ? 'pri' : ''}" data-act="ota" ${!cur || !p || !p.online || busy ? 'disabled' : ''}>${busy ? 'Updating…' : 'Update'}</button><button type="button" class="small" data-act="del" title="Remove from this list">✕</button></td></tr>
+      ${run ? `<tr class="runrow" data-id="${esc(d.id)}"><td colspan="5"><div class="run ${esc(run.state)}"><b>${{ sending: 'Updating', done: 'Last update', error: 'Update failed' }[run.state] || 'Update'}</b> · ${esc(new Date(run.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} · ${esc(run.msg)}</div></td></tr>` : ''}`;
   }).join('') || '<tr><td colspan="5" class="note">No devices yet. Add one below.</td></tr>';
 }
 async function probeAll() {
