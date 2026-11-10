@@ -33,13 +33,9 @@ const FIRMWARE = [
     board: 'ESP32-S3 + I2S DAC', chip: 'ESP32-S3', repo: '{owner}/airplay-esp32', tag: /^signinator-v/,
     factory: 'airplay-signinator-esp32s3-factory.bin', ota: 'airplay-signinator-esp32s3-ota.bin',
     otaMode: 'raw', otaPath: '/api/ota/update', improv: false, probe: 'airplay' },
-  { id: 'wled-esp32', name: 'WLED (ESP32)', what: 'WLED for the sign and tree LED controllers (same build they run now: "ESP32").',
+  { id: 'wled-esp32', name: 'WLED (ESP32)', what: 'WLED for the sign and tree LED controllers ("ESP32" build), with temporal dithering (Config → Usermods).',
     board: 'ESP32 / ESP32-WROVER', chip: 'ESP32', repo: '{owner}/licketysplit', tag: /^wled-v/,
     factory: 'wled-esp32-factory.bin', ota: 'wled-esp32-ota.bin',
-    otaMode: 'multipart', otaPath: '/update', improv: true, probe: 'wled' },
-  { id: 'wled-esp32-wrover', name: 'WLED (ESP32-WROVER, uses PSRAM)', what: 'WLED build that uses the WROVER’s PSRAM. Only for a USB flash: WLED refuses it as an over-the-air update from the plain ESP32 build.',
-    board: 'ESP32-WROVER', chip: 'ESP32', repo: '{owner}/licketysplit', tag: /^wled-v/,
-    factory: 'wled-esp32-wrover-factory.bin', ota: 'wled-esp32-wrover-ota.bin',
     otaMode: 'multipart', otaPath: '/update', improv: true, probe: 'wled' },
 ];
 const fwById = (id) => FIRMWARE.find((f) => f.id === id);
@@ -149,7 +145,8 @@ async function probe(dev) {
     } else {
       const i = await getJson(`http://${dev.host}/json/info`);
       const m = /matrixinator-(.+)$/.exec(i.ver || '');
-      Object.assign(out, { online: true, version: m ? m[1] : (i.ver || null), detail: [i.name, i.release || i.arch, i.leds ? i.leds.count + ' LEDs' : ''].filter(Boolean).join(' · ') });
+      const ver = m ? m[1] : i.ver ? i.ver + (i.dither && i.dither.fw ? '-' + i.dither.fw : '') : null;
+      Object.assign(out, { online: true, version: ver, detail: [i.name, i.release || i.arch, i.leds ? i.leds.count + ' LEDs' : ''].filter(Boolean).join(' · ') });
       if (i.release) out.release = i.release;
     }
   } catch (e) { out.detail = e.name === 'TimeoutError' ? 'no answer' : e.message; }
@@ -160,7 +157,6 @@ const otaRuns = {}; // device id -> { state: 'sending' | 'done' | 'error', msg, 
 async function ota(dev) {
   const fw = fwById(dev.fw), cur = fw && current(fw.id);
   if (!cur || !cur.files.ota) throw new Error('No Wi-Fi update file for this firmware yet. Check for new builds first.');
-  if (fw.id === 'wled-esp32-wrover') throw new Error('The WROVER build is for USB flashing only.');
   const bin = fs.readFileSync(path.join(FW_DIR, fw.id, cur.tag, cur.files.ota.name));
   let body, type;
   if (fw.otaMode === 'raw') { body = bin; type = 'application/octet-stream'; }
