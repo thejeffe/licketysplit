@@ -128,7 +128,7 @@ async function refreshOne(fw) {
   for (const kind of ['factory', 'ota']) {
     if (!rel[kind]) continue;
     const buf = await download(rel[kind]);
-    if (!buf) { if (kind === 'factory') return { ok: false, error: `${rel.tag} has no ${fw.factory}.` }; continue; }
+    if (!buf) { if (kind === 'factory') return { ok: false, error: `${rel.tag} isn\u2019t downloadable yet (GitHub is still publishing it). Try again in a minute.` }; continue; }
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, fw[kind]), buf);
     files[kind] = { name: fw[kind], size: buf.length, sha256: crypto.createHash('sha256').update(buf).digest('hex') };
