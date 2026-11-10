@@ -39,7 +39,10 @@ table.devs{border-collapse:collapse;width:100%;min-width:560px}
 .devs .new{color:var(--ok)}.devs .off{color:var(--err)}
 .devs .acts{white-space:nowrap;text-align:right}
 .devs .acts button+button{margin-left:6px}
-.devs .run{font-size:12.5px;margin-top:4px}
+.devs tr:has(+ .runrow) td{border-bottom:0;padding-bottom:2px}
+.devs .runrow td{padding-top:0}
+.devs .run{font-size:12.5px;color:var(--muted);white-space:normal;overflow-wrap:anywhere;padding:4px 8px;border-radius:6px;background:var(--row)}
+.devs .run b{font-weight:500;color:var(--ink)}
 .devs .run.error{color:var(--err)}.devs .run.done{color:var(--ok)}
 .add{display:grid;gap:8px;grid-template-columns:1fr 1fr 1fr auto;align-items:end;margin-top:12px}
 @media (max-width:719px){.add{grid-template-columns:1fr}}
