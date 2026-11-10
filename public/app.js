@@ -13,38 +13,40 @@ async function api(method, url, body) {
 }
 const when = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '';
 
-// ---------- USB cards ----------
+// ---------- USB: one row per firmware ----------
 function renderCards() {
   const usbOk = 'serial' in navigator;
   $('usbNote').textContent = usbOk
     ? 'Plug the device into this computer with a USB cable, then press Install. A first install erases the device; for Matrixinator and WLED you can set Wi-Fi right after flashing.'
-    : 'This browser can’t flash over USB. Open this page in Chrome or Edge on a computer. (Update over Wi-Fi below works anywhere.)';
+    : 'This browser can\u2019t flash over USB (that needs Chrome or Edge on a computer). Updating your devices over Wi-Fi above works anywhere.';
   $('cards').innerHTML = S.firmware.map((f) => {
     const c = f.current, st = f.status;
     const ver = c ? `${esc(c.version)} · built ${when(c.published)}` : 'No build downloaded yet';
     const err = st && !st.ok ? `<div class="err">${esc(st.error)}</div>` : '';
-    const btn = c && c.files.factory
+    const btn = c && c.files.factory && usbOk
       ? `<esp-web-install-button manifest="fw/${esc(f.id)}/manifest.json"><button slot="activate" class="pri">Install ${esc(c.version)}</button><span slot="unsupported"></span><span slot="not-allowed">Open this page over HTTPS to flash.</span></esp-web-install-button>`
       : '';
-    return `<div class="card"><h3>${esc(f.name)}</h3><div class="what">${esc(f.what)}</div>
-      <div class="meta">${esc(f.board)} · ${esc(f.chip)}<br>${ver}${f.repo ? `<br>${esc(f.repo)}` : ''}</div>${err}${btn}</div>`;
+    return `<div class="row fw"><div><b>${esc(f.name)}</b><span class="sub">${esc(f.what)}</span>
+      <div class="meta">${esc(f.board)} · ${esc(f.chip)} · ${ver}</div>${err}</div>${btn}</div>`;
   }).join('');
 }
 
-// ---------- Wi-Fi devices ----------
+// ---------- your devices: one row each ----------
 function renderDevs() {
   $('aFw').innerHTML = S.firmware.map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
   $('devs').innerHTML = S.devices.map((d) => {
     const f = S.firmware.find((x) => x.id === d.fw) || {}, cur = f.current, p = probes[d.id], run = S.ota[d.id];
-    const running = !p ? '…' : p.online ? `<span class="ver">${esc(p.version || '?')}</span><small>${esc(p.detail)}</small>` : `<span class="off">offline</span><small>${esc(p.detail)}</small>`;
-    const newest = cur ? cur.version : '—';
+    const running = !p ? '<span class="ver">checking…</span>' : p.online ? `<span class="ver">${esc(p.version || '?')}</span>` : '<span class="off">offline</span>';
     const isNew = p && p.online && cur && p.version && p.version !== cur.version && !String(p.version).startsWith(cur.version);
+    const newest = cur ? `<span class="ver ${isNew ? 'new' : ''}">${esc(cur.version)}${isNew ? ' ↑' : ''}</span>` : '<span class="ver">—</span>';
     const busy = run && run.state === 'sending';
-    return `<tr data-id="${esc(d.id)}"><td><b>${esc(d.name)}</b><small>${esc(d.host)}</small></td><td>${esc(f.name || d.fw)}</td>
-      <td>${running}</td><td class="ver ${isNew ? 'new' : ''}">${esc(newest)}${isNew ? ' ↑' : ''}</td>
-      <td class="acts"><button type="button" class="small ${isNew ? 'pri' : ''}" data-act="ota" ${!cur || !p || !p.online || busy ? 'disabled' : ''}>${busy ? 'Updating…' : 'Update'}</button><button type="button" class="small" data-act="del" title="Remove from this list">✕</button></td></tr>
-      ${run ? `<tr class="runrow" data-id="${esc(d.id)}"><td colspan="5"><div class="run ${esc(run.state)}"><b>${{ sending: 'Updating', done: 'Last update', error: 'Update failed' }[run.state] || 'Update'}</b> · ${esc(new Date(run.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} · ${esc(run.msg)}</div></td></tr>` : ''}`;
-  }).join('') || '<tr><td colspan="5" class="note">No devices yet. Add one below.</td></tr>';
+    const runLine = run ? `<div class="run ${esc(run.state)}"><b>${{ sending: 'Updating', done: 'Last update', error: 'Update failed' }[run.state] || 'Update'}</b> · ${esc(new Date(run.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} · ${esc(run.msg)}</div>` : '';
+    return `<div class="row dev" data-id="${esc(d.id)}">
+      <div><b>${esc(d.name)}</b><small>${esc(d.host)}${p && p.detail ? ' · ' + esc(p.detail) : ''}</small></div>
+      <div><small>${esc(f.name || d.fw)}</small>${running} → ${newest}</div>
+      <div class="acts-r"><button type="button" class="small ${isNew ? 'pri' : ''}" data-act="ota" ${!cur || !p || !p.online || busy ? 'disabled' : ''}>${busy ? 'Updating…' : 'Update'}</button><button type="button" class="small" data-act="del" title="Remove from this list" aria-label="Remove ${esc(d.name)}">✕</button></div>
+      ${runLine}</div>`;
+  }).join('') || '<div class="empty">No devices yet. Add one below.</div>';
 }
 async function probeAll() {
   await Promise.all(S.devices.map(async (d) => {
@@ -61,7 +63,7 @@ async function load() {
 
 $('devs').addEventListener('click', async (ev) => {
   const b = ev.target.closest('button'); if (!b) return;
-  const id = b.closest('tr').dataset.id, d = S.devices.find((x) => x.id === id);
+  const id = b.closest('[data-id]').dataset.id, d = S.devices.find((x) => x.id === id);
   if (b.dataset.act === 'del') {
     if (!confirm(`Remove ${d.name} from the list? (Nothing on the device changes.)`)) return;
     await api('DELETE', `api/devices/${id}`).catch((e) => say($('msg'), e.message, 'err'));

@@ -1,51 +1,72 @@
-/* Lickety Split: same design tokens as Signinator and Treeinator. */
-:root{--bg:#EEF1F4;--panel:#FFFFFF;--ink:#1B2836;--muted:#5B6B7B;--rule:#CBD4DD;--accent:#C27400;--on-accent:#FFFFFF;--err:#C23B3B;--ok:#2E8B57;--row:#F4F6F8;
---display:"Barlow Condensed","Arial Narrow",sans-serif;--body:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0D141B;--panel:#131D27;--ink:#DCE5EE;--muted:#90A2B4;--rule:#2A3949;--accent:#F2B33D;--on-accent:#1B1305;--err:#F08585;--ok:#6FCF97;--row:#18232F;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#0D141B;--panel:#131D27;--ink:#DCE5EE;--muted:#90A2B4;--rule:#2A3949;--accent:#F2B33D;--on-accent:#1B1305;--err:#F08585;--ok:#6FCF97;--row:#18232F;color-scheme:dark}
+/* Lickety Split: same design tokens as Signinator and Treeinator. Mobile first: everything is a list of rows. */
+:root{--bg:#EEF1F4;--panel:#FFFFFF;--ink:#1B2836;--muted:#5B6B7B;--rule:#CBD4DD;--accent:#C27400;--on-accent:#FFFFFF;--err:#C23B3B;--ok:#2E8B57;--row:#F4F6F8;--hero:#d42a2a;
+--display:"Barlow Condensed","Arial Narrow",sans-serif;--body:"IBM Plex Sans",system-ui,-apple-system,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0D141B;--panel:#131D27;--ink:#DCE5EE;--muted:#90A2B4;--rule:#2A3949;--accent:#F2B33D;--on-accent:#1B1305;--err:#F08585;--ok:#6FCF97;--row:#18232F;--hero:#ff4a3d;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0D141B;--panel:#131D27;--ink:#DCE5EE;--muted:#90A2B4;--rule:#2A3949;--accent:#F2B33D;--on-accent:#1B1305;--err:#F08585;--ok:#6FCF97;--row:#18232F;--hero:#ff4a3d;color-scheme:dark}
 [hidden]{display:none!important}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--body)}
-.wrap{max-width:1100px;margin:0 auto;padding:12px max(16px,env(safe-area-inset-left,0px)) 32px;display:grid;gap:12px}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--body)}
+.wrap{max-width:900px;margin:0 auto;display:grid;gap:12px;
+ padding:max(12px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(32px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+
+/* header with the logo */
 .top{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
-.title{display:grid;gap:2px}
-.title h1{font:700 30px/1 var(--display);margin:0;letter-spacing:.01em}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.brand img{flex:none;filter:drop-shadow(0 2px 4px rgba(0,0,0,.35))}
+.title{display:grid;gap:2px;min-width:0}
+.title h1{margin:0;font:italic 800 34px/0.95 var(--display);letter-spacing:.02em;text-transform:uppercase;
+ background:linear-gradient(180deg,#ffe17a,#f2a900);-webkit-background-clip:text;background-clip:text;color:transparent;
+ -webkit-text-stroke:1px var(--hero);text-shadow:none}
 .title span{color:var(--muted);font-size:13px}
-.topacts{display:flex;gap:8px}
-h2{font:600 20px/1.1 var(--display);margin:0 0 4px;letter-spacing:.02em}
-.box{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:14px;min-width:0}
+.topacts{display:flex;gap:8px;flex-wrap:wrap}
+
+h2{font:italic 700 22px/1.1 var(--display);margin:0 0 4px;letter-spacing:.02em;text-transform:uppercase}
+.box{background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:14px;min-width:0}
 .note{color:var(--muted);font-size:13px;margin:4px 0 10px}
 .msg{min-height:1.2em;margin:0;font-size:13px}.msg.err{color:var(--err)}.msg.ok{color:var(--ok)}
-button{font:500 14px var(--body);padding:7px 14px;border-radius:7px;border:1px solid var(--rule);background:var(--row);color:var(--ink);cursor:pointer}
+button{font:500 15px var(--body);padding:8px 14px;border-radius:8px;border:1px solid var(--rule);background:var(--row);color:var(--ink);cursor:pointer;-webkit-appearance:none;appearance:none;touch-action:manipulation}
 button:hover:not(:disabled){border-color:var(--muted)}
 button:disabled{opacity:.5;cursor:default}
 button.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-button.small{padding:4px 10px;font-size:13px}
-input,select{font:14px var(--body);width:100%;padding:7px 9px;border-radius:7px;border:1px solid var(--rule);background:var(--bg);color:var(--ink)}
-label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
-.cards{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
-.card{border:1px solid var(--rule);border-radius:9px;padding:12px;display:grid;gap:6px;align-content:start;background:var(--row)}
-.card h3{margin:0;font:600 18px/1.1 var(--display);letter-spacing:.02em}
-.card .what{font-size:13px}
-.card .meta{font:12px var(--mono);color:var(--muted);overflow-wrap:anywhere}
-.card .err{color:var(--err);font-size:12.5px}
-.card esp-web-install-button{margin-top:4px}
-.tablewrap{overflow-x:auto}
-table.devs{border-collapse:collapse;width:100%;min-width:560px}
-.devs th{text-align:left;font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--rule)}
-.devs td{padding:8px;border-bottom:1px solid var(--rule);vertical-align:top}
-.devs td small{display:block;color:var(--muted);font-size:12px}
-.devs .ver{font-family:var(--mono);font-size:13px}
-.devs .new{color:var(--ok)}.devs .off{color:var(--err)}
-.devs .acts{white-space:nowrap;text-align:right}
-.devs .acts button+button{margin-left:6px}
-.devs tr:has(+ .runrow) td{border-bottom:0;padding-bottom:2px}
-.devs .runrow td{padding-top:0}
-.devs .run{font-size:12.5px;color:var(--muted);white-space:normal;overflow-wrap:anywhere;padding:4px 8px;border-radius:6px;background:var(--row)}
-.devs .run b{font-weight:500;color:var(--ink)}
-.devs .run.error{color:var(--err)}.devs .run.done{color:var(--ok)}
+button.small{padding:6px 12px;font-size:14px}
+input,select{font:16px var(--body);width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--rule);background:var(--bg);color:var(--ink);-webkit-appearance:none;appearance:none;min-width:0}
+select{background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 16px) 55%,calc(100% - 11px) 55%;background-size:5px 5px;background-repeat:no-repeat;padding-right:28px}
+label{display:grid;gap:4px;font-size:13px;color:var(--muted);min-width:0}
+
+/* lists of rows (devices and firmware): one grid per row, so columns always line up inside a row */
+.list{display:grid;gap:8px}
+.row{display:grid;gap:4px 12px;align-items:center;padding:10px 12px;border:1px solid var(--rule);border-radius:10px;background:var(--row);min-width:0}
+.row > *{min-width:0}
+.row b{font-weight:600}
+.row small,.row .sub{display:block;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
+.ver{font-family:var(--mono);font-size:13px;overflow-wrap:anywhere}
+.new{color:var(--ok)}.off{color:var(--err)}
+.acts-r{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+.run{grid-column:1/-1;font-size:13px;color:var(--muted);overflow-wrap:anywhere;padding-top:6px;border-top:1px dashed var(--rule);margin-top:4px}
+.run b{font-weight:600;color:var(--ink)}
+.run.error,.run.error b{color:var(--err)}.run.done b{color:var(--ok)}
+.empty{color:var(--muted);font-size:14px;padding:6px 2px}
+
+/* a device: name | firmware + versions | buttons */
+.dev{grid-template-columns:minmax(0,1.2fr) minmax(0,1.6fr) auto}
+/* a firmware: description | install */
+.fw{grid-template-columns:minmax(0,1fr) auto}
+.fw .meta{font:12px var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.fw .err{color:var(--err);font-size:12.5px}
+.fw esp-web-install-button{justify-self:end}
+
 .add{display:grid;gap:8px;grid-template-columns:1fr 1fr 1fr auto;align-items:end;margin-top:12px}
-@media (max-width:719px){.add{grid-template-columns:1fr}}
+
+/* phones: rows stack, buttons go under the text */
+@media (max-width:640px){
+ .dev,.fw{grid-template-columns:minmax(0,1fr)}
+ .acts-r{justify-content:flex-start}
+ .fw esp-web-install-button{justify-self:start}
+ .add{grid-template-columns:1fr}
+ .title h1{font-size:30px}
+}
+
 dialog{border:1px solid var(--rule);border-radius:12px;background:var(--panel);color:var(--ink);padding:16px;width:min(520px,calc(100vw - 32px))}
 dialog::backdrop{background:#0008}
 dialog form{display:grid;gap:10px}

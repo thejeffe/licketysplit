@@ -1,1 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#131D27"/><path d="M36 6 16 36h13l-4 22 23-32H34z" fill="#F2B33D"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="ls-red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff4a3d"/>
+      <stop offset="1" stop-color="#b3121f"/>
+    </linearGradient>
+    <linearGradient id="ls-gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe17a"/>
+      <stop offset="1" stop-color="#f2a900"/>
+    </linearGradient>
+  </defs>
+  <!-- speed streaks -->
+  <g stroke="#f2b33d" stroke-width="3" stroke-linecap="round" opacity=".9">
+    <line x1="2" y1="22" x2="11" y2="22"/>
+    <line x1="0" y1="31" x2="9" y2="31"/>
+    <line x1="3" y1="40" x2="11" y2="40"/>
+  </g>
+  <!-- shield: gold rim, red face -->
+  <path d="M37 3 L59 10 V30 C59 45 49 55 37 61 C25 55 15 45 15 30 V10 Z" fill="url(#ls-gold)"/>
+  <path d="M37 7.5 L55 13.2 V30 C55 42.6 47 51 37 56.4 C27 51 19 42.6 19 30 V13.2 Z" fill="url(#ls-red)"/>
+  <!-- lightning bolt -->
+  <path d="M41 11 L26 34 H35 L31 52 L48 26 H38.5 Z" fill="#fff" stroke="#1b1305" stroke-width="1.6" stroke-linejoin="round"/>
+</svg>
