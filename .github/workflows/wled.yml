@@ -10,7 +10,7 @@ on:
     inputs:
       version:
         description: "WLED tag to build, without the v (e.g. 16.0.1-dither1 from thejeffe/WLED, or 16.0.1 stock)"
-        default: "16.0.1-dither1"
+        default: "16.0.1-dither2"
   push:
     tags: ["wled-v*"]
 
