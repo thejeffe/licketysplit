@@ -117,6 +117,9 @@ $('refresh').addEventListener('click', async () => {
   b.disabled = false;
 });
 
+// ---------- reload (the home-screen app has no browser reload button) ----------
+$('reloadBtn').addEventListener('click', () => { $('reloadBtn').disabled = true; location.reload(); });
+
 // ---------- settings ----------
 $('setBtn').addEventListener('click', () => {
   $('sOwner').value = S.owner || '';
