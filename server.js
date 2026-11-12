@@ -509,6 +509,15 @@ const server = http.createServer(async (req, res) => {
         ping: conf.ping.url ? Object.assign(publicPing(), pingSummary()) : null });
     }
     if (p === '/api/status' && req.method === 'GET') return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() }));
+    if (p === '/api/status/ignore' && req.method === 'POST') {          // ignore / stop ignoring one problem
+      const b = await readBody(req), id = String(b.id || '').slice(0, 200);
+      if (!id) throw new Error('Which problem?');
+      const set = new Set(conf.monitor.ignore || []);
+      if (b.ignore) set.add(id); else set.delete(id);
+      conf.monitor.ignore = [...set].slice(0, 200); saveConf();
+      await monitor.tick();
+      return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() }));
+    }
     if (p === '/api/status/check' && req.method === 'POST') { await monitor.tick(); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }
     if (p === '/api/status/test-email' && req.method === 'POST') { await monitor.sendTest(); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }
     if (p === '/api/status/send-report' && req.method === 'POST') { await monitor.sendReport(); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }

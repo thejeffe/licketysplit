@@ -319,7 +319,7 @@ function renderStatus() {
   $('statusCount').className = 'n' + (al.length ? ' off' : '');
   $('stNote').textContent = (ST.at ? `Checked ${ago(ST.at)} (every minute).` : 'The first check runs a minute after Lickety Split starts.')
     + (ST.settings.enabled ? ` Emails go to ${ST.settings.to || '(no address set)'}.` : ' Email is off: turn it on in ⚙ Settings.');
-  const row = (a, cls) => `<div class="row ${cls}"><div><b>${esc(a.title)}</b><small>${esc([a.cat, a.detail, a.first && cls === 'al' ? 'since ' + since(a.first) : ''].filter(Boolean).join(' · '))}</small></div></div>`;
+  const row = (a, cls) => `<div class="row ${cls}"><div><b>${esc(a.title)}</b><small>${esc([a.cat, a.detail, a.first && cls === 'al' ? 'since ' + since(a.first) : ''].filter(Boolean).join(' · '))}</small></div>${cls === 'al' ? `<div class="acts-r"><button type="button" class="small" data-ignore="${esc(a.id)}" title="Don\u2019t report this again (undo below)">Ignore</button></div>` : ''}</div>`;
   const byCat = {};
   for (const n of nt) (byCat[n.cat] = byCat[n.cat] || []).push(n);
   const checks = Object.entries(ST.checks || {}).sort((a, b) => a[0].localeCompare(b[0]))
@@ -327,16 +327,25 @@ function renderStatus() {
   $('stBody').innerHTML = `${al.length ? `<div class="big bad">${al.length} thing${al.length > 1 ? 's' : ''} need${al.length > 1 ? '' : 's'} attention</div>` : `<div class="allgood">${HERO}<div><div class="big good">All good</div><div class="note" style="margin:0">Everything is working. The duck is on patrol.</div></div></div>`}
     ${al.length ? `<div class="list st-sec">${al.map((a) => row(a, 'al')).join('')}</div>` : ''}
     ${(ST.pending || []).length ? `<p class="note">Watching: ${ST.pending.map((a) => esc(a.title)).join(', ')} (counts if it lasts 3 minutes)</p>` : ''}
-    ${nt.length ? `<div class="st-sec"><h3>Worth knowing</h3><div class="list">${Object.entries(byCat).map(([c, l]) => l.map((a) => row(a, 'nt')).join('')).join('')}</div></div>` : ''}
+    ${nt.length ? `<div class="st-sec"><h3>Updates to install</h3><div class="list">${Object.entries(byCat).map(([c, l]) => l.map((a) => row(a, 'nt')).join('')).join('')}</div></div>` : ''}
     <div class="st-sec"><h3>Checks</h3><div class="checks">${checks || '<span class="muted">No checks yet.</span>'}</div></div>
     ${(ST.history || []).length ? `<div class="st-sec"><h3>Fixed recently</h3><ul class="mails">${ST.history.slice(0, 8).map((h) => `<li>${esc(h.title)} <span class="muted">· ${since(h.from)} \u2013 ${since(h.to)}</span></li>`).join('')}</ul></div>` : ''}
+    ${(ST.ignored || []).length ? `<div class="st-sec"><h3>Ignored</h3><ul class="mails">${ST.ignored.map((x) => `<li>${esc(x.title)} <button type="button" class="small link" data-unignore="${esc(x.id)}">Watch again</button></li>`).join('')}</ul></div>` : ''}
     <div class="st-sec"><h3>Emails</h3><ul class="mails">${(ST.emails || []).slice(0, 8).map((m) => `<li>${since(m.at)} · ${esc(m.subject)}${m.ok ? '' : ` <span class="off">failed: ${esc(m.error)}</span>`}</li>`).join('') || '<li class="muted">None sent yet.</li>'}</ul>
     <div class="acts-r" style="justify-content:flex-start;margin-top:8px"><button type="button" class="small" id="stTest">Send a test email</button><button type="button" class="small" id="stSend">Email this report now</button></div></div>`;
 }
 async function loadStatus() { try { ST = await api('GET', 'api/status'); renderStatus(); } catch (e) { $('stNote').textContent = 'Couldn\u2019t load the status: ' + e.message; } }
 $('stCheck').addEventListener('click', async () => { $('stCheck').disabled = true; try { ST = await api('POST', 'api/status/check'); renderStatus(); } catch (e) { say($('msg'), e.message, 'err'); } $('stCheck').disabled = false; });
 $('stBody').addEventListener('click', async (ev) => {
-  const b = ev.target.closest('button'); if (!b || !['stTest', 'stSend'].includes(b.id)) return;
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.ignore || b.dataset.unignore) {
+    const id = b.dataset.ignore || b.dataset.unignore;
+    if (b.dataset.ignore && !confirm('Ignore this from now on? It won\u2019t show here or in emails (you can undo it under Ignored).')) return;
+    b.disabled = true;
+    try { ST = await api('POST', 'api/status/ignore', { id, ignore: !!b.dataset.ignore }); renderStatus(); } catch (e) { say($('msg'), e.message, 'err'); b.disabled = false; }
+    return;
+  }
+  if (!['stTest', 'stSend'].includes(b.id)) return;
   b.disabled = true;
   try { ST = await api('POST', b.id === 'stTest' ? 'api/status/test-email' : 'api/status/send-report'); renderStatus(); say($('msg'), 'Email sent.', 'ok'); }
   catch (e) { say($('msg'), 'Email failed: ' + e.message, 'err'); b.disabled = false; }

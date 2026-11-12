@@ -22,6 +22,7 @@ const PIHOLE_EVERY = 5 * 60000;
 
 const DEFAULTS = {
   enabled: false,
+  ignore: [],            // problem ids you chose to ignore (e.g. a lock's unreliable door sensor)
   to: '',                // where the email goes (comma-separated)
   from: '',              // the Gmail address that sends it
   password: '',          // its app password (never sent back to the page)
@@ -70,19 +71,28 @@ function smtpSend(o) {
   });
 }
 const b64lines = (s) => Buffer.from(s).toString('base64').replace(/.{76}/g, '$&\r\n');
-function buildMessage({ from, to, subject, text, html }) {
-  const b = 'ls-' + crypto.randomBytes(8).toString('hex');
-  return [
+// text + html, and (optional) inline images the html shows as <img src="cid:...">
+function buildMessage({ from, to, subject, text, html, images }) {
+  const b = 'ls-' + crypto.randomBytes(8).toString('hex'), r = 'lsr-' + crypto.randomBytes(8).toString('hex');
+  const head = [
     `From: Lickety Split <${from}>`, `To: ${to}`,
     `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
     `Date: ${new Date().toUTCString().replace('GMT', '+0000')}`,
-    `Message-ID: <${crypto.randomBytes(12).toString('hex')}@licketysplit>`,
-    'MIME-Version: 1.0', `Content-Type: multipart/alternative; boundary="${b}"`, '',
+    `Message-ID: <${crypto.randomBytes(12).toString('hex')}@licketysplit>`, 'MIME-Version: 1.0'];
+  const alt = [
     `--${b}`, 'Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: base64', '', b64lines(text),
     `--${b}`, 'Content-Type: text/html; charset=utf-8', 'Content-Transfer-Encoding: base64', '', b64lines(html),
-    `--${b}--`, '',
-  ].join('\r\n');
+    `--${b}--`];
+  if (!images || !images.length) return [...head, `Content-Type: multipart/alternative; boundary="${b}"`, '', ...alt, ''].join('\r\n');
+  return [...head, `Content-Type: multipart/related; boundary="${r}"`, '',
+    `--${r}`, `Content-Type: multipart/alternative; boundary="${b}"`, '', ...alt,
+    ...images.flatMap((im) => [`--${r}`, `Content-Type: ${im.type}; name="${im.name}"`, 'Content-Transfer-Encoding: base64',
+      `Content-ID: <${im.cid}>`, `Content-Disposition: inline; filename="${im.name}"`, '', im.data.toString('base64').replace(/.{76}/g, '$&\r\n')]),
+    `--${r}--`, ''].join('\r\n');
 }
+// the duck sidekick, flying (an animated GIF made from the page's drawing)
+let duckGif = null;
+try { duckGif = fs.readFileSync(require('path').join(__dirname, 'public', 'duck.gif')); } catch (e) { /* no duck: plain email */ }
 
 // ---------- the checks ----------
 const HA_TEMPLATE = `{%- set ns = namespace(doors=[], garage=[], autos=[], batt=[], upd=[], dead=[], seen=[]) -%}
@@ -253,9 +263,21 @@ function createMonitor(deps) {
 
   // keep the list of problems: when each started, whether it's confirmed (lasted its grace time), history of fixed ones
   function update(found) {
-    const now = Date.now(), seen = new Set();
+    const now = Date.now(), seen = new Set(), ign = new Set(cfg().ignore || []);
+    // only what needs doing: problems, and updates waiting to be installed (each update once, wherever it came from)
+    const upd = new Set();
+    found = found.filter((f) => {
+      if (ign.has(f.id)) return false;
+      if (f.sev === 'alert') return true;
+      if (f.cat !== 'Updates') return false;
+      const k = f.title.toLowerCase().replace(/\s+(update|dns)$/g, '').replace(/\s+/g, ' ') + '|' + f.detail.toLowerCase().replace(/^v/, '').replace(/\u2192 v/, '\u2192 ');
+      if (upd.has(k)) return false;
+      upd.add(k); return true;
+    });
+    st.titles = st.titles || {};
     for (const f of found) {
       seen.add(f.id);
+      st.titles[f.id] = f.title.replace(/ open for .*$/, '').replace(/ isn\u2019t answering$/, '');
       const a = st.active[f.id];
       st.active[f.id] = Object.assign({}, f, { first: a ? a.first : now, mailed: a ? a.mailed : false });
     }
@@ -274,7 +296,7 @@ function createMonitor(deps) {
   function report() {
     const now = Date.now(), al = confirmed(), pending = Object.values(st.active).filter((a) => a.sev === 'alert' && now - a.first < a.grace);
     return { at: st.at || 0, enabled: cfg().enabled, alerts: al.sort((a, b) => a.first - b.first), pending, notices: notices().sort((a, b) => a.cat.localeCompare(b.cat) || a.title.localeCompare(b.title)),
-      checks: st.checks, history: st.history.slice(0, 20), emails: st.emails.slice(0, 15) };
+      checks: st.checks, history: st.history.slice(0, 20), emails: st.emails.slice(0, 15), ignored: (cfg().ignore || []).map((id) => ({ id, title: (st.titles || {})[id] || id })) };
   }
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   function emailBody(kind, extra) {
@@ -283,13 +305,17 @@ function createMonitor(deps) {
     const parts = [
       kind === 'clear' ? { title: 'All clear', items: ['Everything is working again.'] } : null,
       sec('What’s wrong', r.alerts, (a) => `${a.title}${a.detail ? ' — ' + a.detail : ''} (since ${when(a.first)})`),
-      sec('Also worth knowing', r.notices, (a) => `${a.title}${a.detail ? ' — ' + a.detail : ''}`),
+      sec('Updates to install', r.notices, (a) => `${a.title}${a.detail ? ' — ' + a.detail : ''}`),
       kind !== 'alert' ? sec('Fixed recently', r.history.filter((h) => now() - h.to < 7 * 86400000).slice(0, 15), (h) => `${h.title} (${when(h.from)} – ${when(h.to)})`) : null,
       ...(extra || []),
     ].filter(Boolean);
     function now() { return Date.now(); }
     const text = parts.map((p) => `${p.title.toUpperCase()}\n${p.items.map((i) => '  - ' + i).join('\n')}`).join('\n\n') + '\n\n— Lickety Split (Duck Hunting)\n';
+    const n = r.alerts.length;
+    const headline = kind === 'test' ? 'Test email: the duck can reach you.' : n ? `The duck found ${n} thing${n > 1 ? 's' : ''} to fix.` : 'All good \u2014 the duck is on patrol.';
     const html = `<div style="font:15px/1.45 -apple-system,Segoe UI,Arial,sans-serif;color:#1B2836;max-width:640px">`
+      + (duckGif ? `<img src="cid:duck@licketysplit" width="220" height="110" alt="Lickety Split\u2019s duck sidekick" style="display:block;border:0;margin:0 0 4px">` : '')
+      + `<div style="font:italic 800 22px/1.15 Arial Narrow,Arial,sans-serif;text-transform:uppercase;color:${n && kind !== 'clear' ? '#C23B3B' : '#2E8B57'}">${esc(headline)}</div>`
       + parts.map((p) => `<h3 style="margin:18px 0 6px;font-size:16px;color:${p.title === 'What’s wrong' ? '#C23B3B' : p.title === 'All clear' ? '#2E8B57' : '#1B2836'}">${esc(p.title)}</h3><ul style="margin:0;padding-left:20px">${p.items.map((i) => `<li style="margin:3px 0">${esc(i)}</li>`).join('')}</ul>`).join('')
       + `<p style="color:#5B6B7B;font-size:12px;margin-top:22px">— Lickety Split (Duck Hunting)</p></div>`;
     return { text, html };
@@ -299,7 +325,8 @@ function createMonitor(deps) {
     if (!c.to || !c.from || !c.password) throw new Error('Set the email address, the Gmail address and its app password first.');
     const { text, html } = emailBody(kind, extra);
     await smtpSend({ host: process.env.LS_SMTP_HOST || c.smtpHost, port: +process.env.LS_SMTP_PORT || c.smtpPort, insecure: process.env.LS_SMTP_INSECURE === '1', user: c.from, pass: c.password, from: c.from, to: c.to,
-      message: buildMessage({ from: c.from, to: c.to, subject, text, html }) });
+      message: buildMessage({ from: c.from, to: c.to, subject, text, html,
+        images: duckGif ? [{ cid: 'duck@licketysplit', name: 'duck.gif', type: 'image/gif', data: duckGif }] : [] }) });
     st.emails.unshift({ at: Date.now(), kind, subject, ok: true });
     st.emails = st.emails.slice(0, 40); save();
     deps.log(`Duck Hunting email sent: ${subject}`);
