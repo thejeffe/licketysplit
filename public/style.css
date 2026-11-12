@@ -74,6 +74,16 @@ label{display:grid;gap:4px;font-size:13px;color:var(--muted);min-width:0}
 .tabs .n{font:500 12px var(--body);color:var(--muted)}
 .sub-h{font:600 12px var(--body);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:10px 2px 2px}
 
+/* health ping line */
+.ping{font-size:12.5px;color:var(--muted);margin:-4px 0 10px}
+.ping > summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ping > summary::-webkit-details-marker{display:none}
+.strip{display:inline-flex;gap:2px;vertical-align:middle}
+.strip i{width:6px;height:12px;border-radius:2px;background:var(--rule)}
+.strip i.ok{background:var(--ok);opacity:.65}.strip i.bad{background:var(--err)}
+.ping .log{font:11.5px/1.6 var(--mono);margin:6px 0 0;columns:2 220px}
+.ping .log .bad{color:var(--err)}
+
 /* DNS panel */
 .dns{border:1px solid var(--rule);border-radius:10px;padding:10px 12px;margin:4px 0 12px;background:var(--row)}
 .dns h3{margin:0 0 6px;font:italic 700 18px/1.1 var(--display);text-transform:uppercase;letter-spacing:.02em}

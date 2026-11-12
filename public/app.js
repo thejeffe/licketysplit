@@ -213,9 +213,25 @@ async function nameAction(ev) {
 }
 $('dnsBox').addEventListener('click', nameAction);
 
+function renderPing() {
+  const p = NET.ping;
+  $('pingBox').hidden = !p;
+  if (!p) return;
+  const tm = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  const cells = p.hours.map((h, i) => {
+    const cls = h.fail ? 'bad' : h.ok ? 'ok' : '';
+    return `<i class="${cls}" title="${24 - i} h ago: ${h.ok} OK${h.fail ? ', ' + h.fail + ' failed' : ''}"></i>`;
+  }).join('');
+  const last = p.last ? ` · last ${ago(p.last.at)}${p.last.ok ? '' : ' <span class="off">failed (' + esc(p.last.status) + ')</span>'}` : '';
+  $('pingSum').innerHTML = `<span>Health ping (${esc(p.host)}): ${p.ok.toLocaleString()} of ${(p.ok + p.fail).toLocaleString()} OK in the last 24 h${last}</span><span class="strip">${cells}</span><span>log ▾</span>`;
+  const row = (x) => `<div${x.ok ? '' : ' class="bad"'}>${tm(x.t)} ${x.ok ? 'OK' : 'failed: ' + esc(x.s || '')}</div>`;
+  $('pingLog').innerHTML = (p.failures.length ? `<div class="log">${p.failures.map(row).join('')}</div>` : '')
+    + `<div class="log">${p.recent.map(row).join('') || 'No pings yet.'}</div>`;
+}
+
 function renderNet() {
   if (!NET) return;
-  renderDns();
+  renderDns(); renderPing();
   const st = NET.settings, r = NET.result, q = $('netFilter').value.trim().toLowerCase();
   $('netCount').textContent = r ? String(r.hosts.filter((h) => h.online).length) : '';
   const src = r && r.sources ? Object.entries({ 'Home Assistant': r.sources.ha, 'Pi-hole': r.sources.pihole || 'not set up', mDNS: r.sources.mdns, DNS: r.sources.dns })
@@ -306,3 +322,5 @@ $('setForm').addEventListener('submit', async (ev) => {
 
 load().then(() => { probeAll(); loadNet(); if (Object.values(S.ota).some((r) => r.state === 'sending')) watchOta(); })
   .catch((e) => say($('msg'), 'Couldn’t load: ' + e.message, 'err'));
+// keep the ping line and the list fresh while the page is open
+setInterval(() => { if (!document.hidden && NET && !NET.scanning) loadNet(); }, 60000);

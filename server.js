@@ -366,6 +366,26 @@ async function syncNames(r, why) {
 // ---------- health ping: "I'm alive" to a monitoring URL (healthchecks.io and similar) ----------
 let pingLast = null;      // { at, ok, status }
 let pingBusy = false;
+// the last 24 hours of pings, kept in DATA_DIR/pings.json: [{ t, ok, s }] (s = status, only when it failed)
+const PING_FILE = path.join(CFG.dataDir, 'pings.json'), DAY = 86400000;
+let pingLog = [];
+try { pingLog = JSON.parse(fs.readFileSync(PING_FILE, 'utf8')).filter((x) => Date.now() - x.t < DAY); } catch (e) { /* none yet */ }
+if (pingLog.length) { const x = pingLog[pingLog.length - 1]; pingLast = { at: x.t, ok: x.ok, status: x.s || 'HTTP 200' }; }
+function recordPing() {
+  pingLog.push(pingLast.ok ? { t: pingLast.at, ok: true } : { t: pingLast.at, ok: false, s: pingLast.status });
+  const cut = Date.now() - DAY;
+  while (pingLog.length && pingLog[0].t < cut) pingLog.shift();
+  fs.writeFile(PING_FILE + '.tmp', JSON.stringify(pingLog), (e) => { if (!e) fs.rename(PING_FILE + '.tmp', PING_FILE, () => {}); });
+}
+function pingSummary() {
+  const now = Date.now(), hours = Array.from({ length: 24 }, () => ({ ok: 0, fail: 0 }));
+  for (const x of pingLog) {
+    const h = 23 - Math.floor((now - x.t) / 3600000);
+    if (h >= 0 && h < 24) hours[h][x.ok ? 'ok' : 'fail']++;
+  }
+  return { ok: pingLog.filter((x) => x.ok).length, fail: pingLog.filter((x) => !x.ok).length, hours,
+    recent: pingLog.slice(-30).reverse(), failures: pingLog.filter((x) => !x.ok).slice(-30).reverse() };
+}
 async function pingNow() {
   const u = conf.ping.url;
   if (!u || pingBusy) return;
@@ -373,9 +393,11 @@ async function pingNow() {
   try {
     const r = await fetch(u, { headers: { 'User-Agent': 'licketysplit' }, signal: AbortSignal.timeout(10000) });
     pingLast = { at: Date.now(), ok: r.ok, status: 'HTTP ' + r.status };
+    recordPing();
     if (!r.ok) log(`Health ping: HTTP ${r.status}`);
   } catch (e) {
     pingLast = { at: Date.now(), ok: false, status: e.name === 'TimeoutError' ? 'no answer' : String((e.cause && e.cause.code) || e.message) };
+    recordPing();
     log('Health ping failed: ' + pingLast.status);
   } finally { pingBusy = false; }
 }
@@ -444,7 +466,8 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { owner: conf.owner, net: publicNet(), ping: publicPing() });
     }
     if (p === '/api/network' && req.method === 'GET') {
-      return send(res, 200, { settings: publicNet(), scanning: !!netRun, error: netError, result: netResult, names: dnsNames() });
+      return send(res, 200, { settings: publicNet(), scanning: !!netRun, error: netError, result: netResult, names: dnsNames(),
+        ping: conf.ping.url ? Object.assign(publicPing(), pingSummary()) : null });
     }
     if (p === '/api/network/names' && req.method === 'POST') {       // rename / remove / allow again one Pi-hole name
       const b = await readBody(req), mac = String(b.mac || '').toLowerCase();
@@ -468,7 +491,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/network/scan' && req.method === 'POST') {
       const r = await scanNetwork();
-      return send(res, 200, { settings: publicNet(), scanning: false, error: null, result: r, names: dnsNames() });
+      return send(res, 200, { settings: publicNet(), scanning: false, error: null, result: r, names: dnsNames(),
+        ping: conf.ping.url ? Object.assign(publicPing(), pingSummary()) : null });
     }
     if (p === '/api/refresh' && req.method === 'POST') { const r = await refreshAll(); return send(res, 200, { results: r.results, firmware: catalog() }); }
     if (p === '/api/devices' && req.method === 'POST') {
