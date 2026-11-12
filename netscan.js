@@ -316,6 +316,46 @@ async function piholeInfo(url, password) {
 
 const urlHost = (u) => { try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ''; } };
 
+// ---------- TP-Link Kasa / Tapo ----------
+// Older Kasa devices answer the local protocol on TCP 9999 (XOR "autokey") with their name, model and firmware.
+// Newer ones (KLAP) need the TP-Link account to log in, but answer the UDP 20002 discovery with model and type.
+const kasaEnc = (str) => { const b = Buffer.from(str); let k = 171; const o = Buffer.alloc(b.length + 4); o.writeUInt32BE(b.length);
+  for (let i = 0; i < b.length; i++) { k = b[i] ^ k; o[i + 4] = k; } return o; };
+const kasaDec = (b) => { let k = 171; const o = Buffer.alloc(b.length); for (let i = 0; i < b.length; i++) { o[i] = b[i] ^ k; k = b[i]; } return o.toString(); };
+function kasaSysinfo(ip) {
+  return new Promise((resolve) => {
+    const sock = net.connect(9999, ip);
+    let buf = Buffer.alloc(0);
+    const t = setTimeout(() => { sock.destroy(); resolve(null); }, 2500);
+    sock.on('connect', () => sock.write(kasaEnc('{"system":{"get_sysinfo":{}}}')));
+    sock.on('data', (d) => {
+      buf = Buffer.concat([buf, d]);
+      if (buf.length >= 4 && buf.length >= buf.readUInt32BE(0) + 4) {
+        clearTimeout(t); sock.destroy();
+        try { resolve(JSON.parse(kasaDec(buf.slice(4))).system.get_sysinfo); } catch (e) { resolve(null); }
+      }
+    });
+    sock.on('error', () => { clearTimeout(t); resolve(null); });
+  });
+}
+function tplinkDiscover(ips, ms) {
+  return new Promise((resolve) => {
+    const dgram = require('dgram'), out = {};
+    let sock;
+    try { sock = dgram.createSocket('udp4'); } catch (e) { return resolve(out); }
+    const pkt = Buffer.from('020000010000000000000000463cb5d3', 'hex');
+    sock.on('message', (m, r) => { try { const x = JSON.parse(m.slice(16).toString()).result || {}; out[r.address] = { type: x.device_type || '', model: x.device_model || '', login: !!(x.mgt_encrypt_schm && x.mgt_encrypt_schm.encrypt_type) }; } catch (e) { /* not one */ } });
+    sock.on('error', () => {});
+    sock.bind(() => {
+      try { sock.setBroadcast(true); } catch (e) { /* fine */ }
+      for (const ip of ips) sock.send(pkt, 20002, ip, () => {});
+    });
+    setTimeout(() => { try { sock.close(); } catch (e) { /* closed */ } resolve(out); }, ms || 3000);
+  });
+}
+const KASA_KIND = { 'IOT.SMARTPLUGSWITCH': 'plug or switch', 'IOT.SMARTBULB': 'bulb', 'SMART.KASASWITCH': 'light switch', 'SMART.KASAPLUG': 'plug',
+  'SMART.TAPOPLUG': 'plug', 'SMART.TAPOBULB': 'bulb', 'SMART.TAPOSWITCH': 'light switch', 'SMART.KASAHUB': 'hub', 'SMART.TAPOHUB': 'hub', 'SMART.IPCAMERA': 'camera' };
+
 // ---------- 5. its web page ----------
 async function getText(url, ms) {
   const r = await fetch(url, { signal: AbortSignal.timeout(ms), redirect: 'manual' });
@@ -387,7 +427,13 @@ async function scan(opts) {
   sources.ha = ha.skipped ? 'not set up' : ha.error || 'ok';
 
   const web = {};
-  await pool(live.filter((ip) => answer[ip] === 'open'), HTTP_PAR, async (ip) => { web[ip] = await lookAtWeb(ip).catch(() => ({})); });
+  const tpIps = live.filter((ip) => arp[ip] && /^tp-?link/i.test(makerOf(arp[ip], makers)));
+  const [, tpDisc] = await Promise.all([
+    pool(live.filter((ip) => answer[ip] === 'open'), HTTP_PAR, async (ip) => { web[ip] = await lookAtWeb(ip).catch(() => ({})); }),
+    tplinkDiscover(tpIps, 3000),
+  ]);
+  const kasa = {};
+  await pool(tpIps.filter((ip) => !tpDisc[ip] || !tpDisc[ip].login), 16, async (ip) => { const i = await kasaSysinfo(ip); if (i) kasa[ip] = i; });
 
   const haByMac = {}, haByHost = {}, haByMatter = {}, trkByIp = {}, trkByMac = {}, updByDev = {};
   for (const d of ha.devices) {
@@ -416,8 +462,17 @@ async function scan(opts) {
     const isSelf = !!(self && ip === self.ip);
     const maker = makerOf(mac, makers) || (pe && pe.vendor) || '';
     const isHa = (md.kinds || []).includes('Home Assistant');
+    const ks = kasa[ip], td = tpDisc[ip];
+    if (ks || td) {                                   // a TP-Link Kasa/Tapo device: its own name, model, firmware
+      const model = ((ks && ks.model) || (td && td.model) || '').replace(/\(.*\)$/, '');
+      w.kind = ['Kasa', model, (ks && ks.dev_name) || (td && KASA_KIND[td.type]) || ''].filter(Boolean).join(' ');
+      if (ks) { w.name = ks.alias || ''; w.version = (ks.sw_ver || '').split(' ')[0]; }
+      w.kasaLogin = !!(td && td.login && !ks);
+      if (!w.name && model) w.fallbackName = `Kasa ${model} ${(td && KASA_KIND[td.type]) || 'device'}`;
+    }
     const name = (isSelf && os.hostname()) || [hd && hd.name, w.name].find(usable) || (isHa && 'Home Assistant')
-      || [md.name, trk && trk.name, pe && pe.lease, ...dnsNames.map(short)].find(usable) || md.host || [trk && trk.host].find(usable) || '';
+      || [md.name, trk && trk.name, pe && pe.lease, ...dnsNames.map(short)].find(usable) || md.host || [trk && trk.host].find(usable)
+      || w.fallbackName || '';
     const desc = [];
     if (isSelf) desc.push('This server (Lickety Split)');
     if (pe && pe.comment) desc.push(pe.comment);
@@ -429,6 +484,7 @@ async function scan(opts) {
     const kinds = md.kinds ? md.kinds.filter((k) => !(w.kind && (k === 'WLED' || k === 'Web page')) && k !== 'SSH') : [];
     if (kinds.length) desc.push(kinds.join(', '));
     if (maker && maker !== 'private address' && !desc.some((d) => d.toLowerCase().includes(maker.toLowerCase().split(/[ ,]/)[0]))) desc.push('Made by ' + brandOf(maker));
+    if (w.kasaLogin && !hd) desc.push('its name needs the TP-Link login (or Home Assistant)');
     if (w.title && w.title !== name && desc.length < 2) desc.push('Web page: ' + w.title);
     else if (!w.title && w.server && desc.length < 2) desc.push('Web server: ' + w.server);
     if (maker === 'private address' && !desc.length) desc.push('Phone, tablet or computer (private Wi-Fi address)');
@@ -438,7 +494,7 @@ async function scan(opts) {
     const home = !isSelf && !isHa && (HOME_BRAND.test(brand) || (md.kinds || []).some((k) => HOME_KINDS.includes(k))
       || !!(hd && (hd.doms || []).some((x) => HOME_DOMAINS.includes(x))));
     return {
-      key: mac || ip, ip, mac, name, dns: dnsName, dnsAll: dnsNames, mdns: md.mdnsHost || '', area: (hd && hd.area) || '', maker, brand,
+      key: mac || ip, ip, mac, name, generic: !!(w.fallbackName && name === w.fallbackName), dns: dnsName, dnsAll: dnsNames, mdns: md.mdnsHost || '', area: (hd && hd.area) || '', maker, brand,
       desc: desc.join(' · '), inHa: !!hd, fw: w.fw || '', version: w.version || '', web: answer[ip] === 'open',
       matter, thread: !!md.thread, update: upd, group: groupOf(w.fw, matter, upd, isHa, home),
       queries: (pe && pe.queries) || 0, lastQuery: (pe && pe.lastQuery) || 0,
@@ -522,7 +578,7 @@ function planNames(res, opts) {
   }
   // 2. newly named devices
   for (const h of Object.values(byMac)) {
-    if (skip(h.mac) || out.some((e) => e.mac === h.mac) || usedIp.has(h.ip) || !h.name || hasOwnDns(h)) continue;
+    if (skip(h.mac) || out.some((e) => e.mac === h.mac) || usedIp.has(h.ip) || !h.name || h.generic || hasOwnDns(h)) continue;
     const base = custom(h.mac) ? null : slug(h.name);
     if (!custom(h.mac) && (!base || /^(unknown|phone-or-computer)$/.test(base))) continue;
     take({ mac: h.mac, ip: h.ip, host: custom(h.mac) || uniq(base), seen: now, device: h.name });
@@ -592,7 +648,7 @@ function updateWay({ w, md, hd, maker, isHa, ups }) {
   if (/octoprint/i.test(w.title || '')) return { by: 'web', how: 'OctoPrint’s software update', installed: '' };
   if (isHa) return { by: 'web', how: 'Home Assistant: Settings → Updates', installed: '' };
   const mk = (hd && hd.maker) || maker || '';
-  for (const [re, how] of APP_WAY) if (re.test(mk)) return { by: 'app', how, installed: (hd && hd.sw) || '' };
+  for (const [re, how] of APP_WAY) if (re.test(mk)) return { by: 'app', how: /^Kasa/.test(w.kind || '') ? 'Kasa app' : how, installed: (hd && hd.sw) || w.version || '' };
   return null;
 }
 // home automation: plugs, switches, thermostats, sensors, cameras… (grouped by maker on the page)
