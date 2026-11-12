@@ -317,7 +317,7 @@ function renderStatus() {
   const al = ST.alerts || [], nt = ST.notices || [], since = (t) => t ? new Date(t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
   $('statusCount').textContent = al.length ? String(al.length) : '';
   $('statusCount').className = 'n' + (al.length ? ' off' : '');
-  $('stNote').textContent = (ST.at ? `Checked ${ago(ST.at)} (every minute).` : 'The first check runs a minute after Lickety Split starts.')
+  $('stNote').textContent = (ST.at ? `Checked ${ago(ST.at)} (every ${ST.every > 1 ? ST.every + ' minutes' : 'minute'}).` : 'The first check runs a minute after Lickety Split starts.')
     + (ST.settings.enabled ? ` Emails go to ${ST.settings.to || '(no address set)'}.` : ' Email is off: turn it on in ⚙ Settings.');
   const row = (a, cls) => `<div class="row ${cls}"><div><b>${esc(a.title)}</b><small>${esc([a.cat, a.detail, a.first && cls === 'al' ? 'since ' + since(a.first) : ''].filter(Boolean).join(' · '))}</small>${a.fix ? `<div class="upd"><b>How to fix:</b> ${esc(a.fix)}</div>` : ''}</div>${cls === 'al' ? `<div class="acts-r"><button type="button" class="small" data-ignore="${esc(a.id)}" title="Don\u2019t report this again (undo below)">Ignore</button></div>` : ''}</div>`;
   const byCat = {};
@@ -326,7 +326,7 @@ function renderStatus() {
     .map(([k, c]) => `<div title="${esc(c.detail)}"><span class="dot${c.ok ? '' : ' bad'}"></span>${esc(k)} <small>${esc(c.detail)}</small></div>`).join('');
   $('stBody').innerHTML = `${al.length ? `<div class="big bad">${al.length} thing${al.length > 1 ? 's' : ''} need${al.length > 1 ? '' : 's'} attention</div>` : `<div class="allgood">${HERO}<div><div class="big good">All good</div><div class="note" style="margin:0">Everything is working. The duck is on patrol.</div></div></div>`}
     ${al.length ? `<div class="list st-sec">${al.map((a) => row(a, 'al')).join('')}</div>` : ''}
-    ${(ST.pending || []).length ? `<p class="note">Watching: ${ST.pending.map((a) => esc(a.title)).join(', ')} (counts if it lasts 3 minutes)</p>` : ''}
+    ${(ST.pending || []).length ? `<p class="note">Watching: ${ST.pending.map((a) => esc(a.title)).join(', ')} (counts if it\u2019s still wrong at the next check)</p>` : ''}
     ${nt.length ? `<div class="st-sec"><h3>Updates to install</h3><div class="list">${Object.entries(byCat).map(([c, l]) => l.map((a) => row(a, 'nt')).join('')).join('')}</div></div>` : ''}
     <div class="st-sec"><h3>Checks</h3><div class="checks">${checks || '<span class="muted">No checks yet.</span>'}</div></div>
     ${(ST.history || []).length ? `<div class="st-sec"><h3>Fixed recently</h3><ul class="mails">${ST.history.slice(0, 8).map((h) => `<li>${esc(h.title)} <span class="muted">· ${since(h.from)} \u2013 ${since(h.to)}</span></li>`).join('')}</ul></div>` : ''}
@@ -378,7 +378,7 @@ $('setBtn').addEventListener('click', () => {
   $('nHaNote').textContent = n.haTokenSet ? 'A Home Assistant token is set. It stays on this server and is never shown again.' : 'Without a token the list still works, but has no Home Assistant names, rooms or update versions.';
   const mo = S.monitor || {};
   if (!$('mHour').options.length) $('mHour').innerHTML = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${new Date(2000, 0, 1, h).toLocaleTimeString(undefined, { hour: 'numeric' })}</option>`).join('');
-  $('mOn').checked = !!mo.enabled; $('mTo').value = mo.to || ''; $('mFrom').value = mo.from || ''; $('mPw').value = '';
+  $('mOn').checked = !!mo.enabled; $('mEvery').value = String(mo.every || 5); $('mTo').value = mo.to || ''; $('mFrom').value = mo.from || ''; $('mPw').value = '';
   $('mPw').placeholder = mo.passwordSet ? 'Set (leave blank to keep it)' : '16 letters from Google';
   $('mNew').checked = mo.notifyNew !== false; $('mClear').checked = mo.notifyClear !== false;
   $('mDay').value = String(mo.weeklyDay ?? 1); $('mHour').value = String(mo.weeklyHour ?? 8);
@@ -397,7 +397,7 @@ $('setForm').addEventListener('submit', async (ev) => {
   try {
     await api('PUT', 'api/settings', { owner: $('sOwner').value, net: { enabled: $('nOn').checked, subnet: $('nSubnet').value, dns: $('nDns').value, haUrl: $('nHaUrl').value, haToken: $('nHaToken').value, piholeUrl: $('nPiUrl').value, piholePassword: $('nPiPw').value, piholeNames: $('nPiNames').checked, piholeSuffix: $('nPiSuffix').value || 'lan' },
       ping: { url: $('pUrl').value, every: +$('pEvery').value, clear: $('pClear').checked },
-      monitor: { enabled: $('mOn').checked, to: $('mTo').value, from: $('mFrom').value, password: $('mPw').value, notifyNew: $('mNew').checked, notifyClear: $('mClear').checked,
+      monitor: { enabled: $('mOn').checked, every: +$('mEvery').value, to: $('mTo').value, from: $('mFrom').value, password: $('mPw').value, notifyNew: $('mNew').checked, notifyClear: $('mClear').checked,
         weeklyDay: +$('mDay').value, weeklyHour: +$('mHour').value, doorMin: +$('mDoor').value, garageMin: +$('mGarage').value, battery: +$('mBatt').value, diskGb: +$('mDisk').value, watch: $('mWatch').value } });
     $('setDlg').close(); say($('msg'), 'Saved.', 'ok'); await load(); loadNet(); loadStatus();
   }

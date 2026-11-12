@@ -22,6 +22,7 @@ const PIHOLE_EVERY = 5 * 60000;
 
 const DEFAULTS = {
   enabled: false,
+  every: 5,              // minutes between checks
   ignore: [],            // problem ids you chose to ignore (e.g. a lock's unreliable door sensor)
   to: '',                // where the email goes (comma-separated)
   from: '',              // the Gmail address that sends it
@@ -284,7 +285,7 @@ function createMonitor(deps) {
       catch (e) {
         fails[t.key] = (fails[t.key] || 0) + 1;
         check(t.name, false, e.message);
-        if (fails[t.key] >= 3) add(t.key, 'alert', 'Devices', `${t.name} isn’t answering`, e.name === 'TimeoutError' ? 'no answer' : e.message);
+        if (fails[t.key] >= (c.every >= 3 ? 1 : 3)) add(t.key, 'alert', 'Devices', `${t.name} isn’t answering`, e.name === 'TimeoutError' ? 'no answer' : e.message);
       }
     }));
 
@@ -337,7 +338,7 @@ function createMonitor(deps) {
   // ---------- the report (page and email share it) ----------
   function report() {
     const now = Date.now(), al = confirmed(), pending = Object.values(st.active).filter((a) => a.sev === 'alert' && now - a.first < a.grace);
-    return { at: st.at || 0, enabled: cfg().enabled, alerts: al.sort((a, b) => a.first - b.first), pending, notices: notices().sort((a, b) => a.cat.localeCompare(b.cat) || a.title.localeCompare(b.title)),
+    return { at: st.at || 0, enabled: cfg().enabled, every: +cfg().every || 5, alerts: al.sort((a, b) => a.first - b.first), pending, notices: notices().sort((a, b) => a.cat.localeCompare(b.cat) || a.title.localeCompare(b.title)),
       checks: st.checks, history: st.history.slice(0, 20), emails: st.emails.slice(0, 15), ignored: (cfg().ignore || []).map((id) => ({ id, title: (st.titles || {})[id] || id })) };
   }
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
@@ -443,8 +444,14 @@ function createMonitor(deps) {
     } finally { running = false; }
   }
 
+  // runs the checks when they're due (every "every" minutes); the server calls this often
+  function maybeTick() {
+    const every = Math.max(1, +cfg().every || 5) * 60000;
+    if (!st.at || Date.now() - st.at >= every - 15000) tick();
+  }
+
   return {
-    tick, report,
+    tick, report, maybeTick,
     sendTest: () => sendEmail('test', `${duck} Duck Hunting: test email`, [{ title: 'Test', items: ['If you can read this, Lickety Split can email you.'] }]),
     sendReport: () => { const al = confirmed(); return sendEmail('report', al.length ? alertSubject(al) : `${duck} Duck Hunting report: all good`, weeklyExtra()); },
     DEFAULTS,

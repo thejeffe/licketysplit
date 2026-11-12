@@ -431,7 +431,7 @@ const monitor = monitorLib.createMonitor({
 });
 function publicMonitor() {
   const m = conf.monitor;
-  return { enabled: m.enabled, to: m.to, from: m.from, passwordSet: !!m.password, doorMin: m.doorMin, garageMin: m.garageMin,
+  return { enabled: m.enabled, every: m.every, to: m.to, from: m.from, passwordSet: !!m.password, doorMin: m.doorMin, garageMin: m.garageMin,
     battery: m.battery, diskGb: m.diskGb, weeklyDay: m.weeklyDay, weeklyHour: m.weeklyHour, notifyNew: m.notifyNew, notifyClear: m.notifyClear,
     watch: m.watch };
 }
@@ -443,6 +443,7 @@ function cleanMonitor(b) {
   if ('from' in b) m.from = email(b.from);
   if (typeof b.password === 'string' && b.password.trim()) m.password = b.password.replace(/\s+/g, '').slice(0, 100);   // app passwords are shown with spaces
   const num = (k, lo, hi) => { if (k in b) { const v = Math.round(+b[k]); if (!(v >= lo && v <= hi)) throw new Error(`${k} should be ${lo}\u2013${hi}`); m[k] = v; } };
+  if ('every' in b) m.every = [1, 2, 5, 10, 15, 30].includes(+b.every) ? +b.every : 5;
   num('doorMin', 1, 1440); num('garageMin', 1, 1440); num('battery', 1, 90); num('weeklyDay', -1, 6); num('weeklyHour', 0, 23);
   if ('diskGb' in b) { const v = Math.round(+b.diskGb * 10) / 10; if (!(v >= 0 && v <= 500)) throw new Error('diskGb should be 0\u2013500'); m.diskGb = v; }
   if ('notifyNew' in b) m.notifyNew = !!b.notifyNew;
@@ -456,8 +457,8 @@ function cleanMonitor(b) {
   }
   return m;
 }
-setTimeout(() => monitor.tick(), 30000);
-setInterval(() => monitor.tick(), 60000);
+setTimeout(() => monitor.maybeTick(), 30000);
+setInterval(() => monitor.maybeTick(), 30000);
 
 // ---------- HTTP ----------
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.bin': 'application/octet-stream' };
