@@ -569,22 +569,32 @@ function planNames(res, opts) {
   const take = (e) => { out.push(e); used.add(e.host); usedIp.add(e.ip); };
   const uniq = (base) => { let n = `${base}.${suffix}`, i = 2; while (taken.has(n) || used.has(n)) n = `${base}-${i++}.${suffix}`; return n; };
   const custom = (mac) => overrides[mac] && overrides[mac].host;
+  // a real name for the device, or (fallback) its maker or model plus the end of its MAC address, e.g. amazon-6c08
+  const realBase = (h) => { const b = h.name && !h.generic ? slug(h.name) : ''; return b && !/^(unknown|phone-or-computer)$/.test(b) ? b : ''; };
+  const fallbackBase = (h) => {
+    const tag = h.mac.replace(/:/g, '').slice(-4);
+    const what = h.generic ? slug(h.name.replace(/^Kasa /, 'kasa ')) : h.brand ? slug(h.brand.replace(/ \(.*\)$/, '')) : 'device';
+    return `${what || 'device'}-${tag}`;
+  };
   // 1. records we already have: keep the name, follow the device
   for (const m of managed) {
     if (skip(m.mac)) continue;
     const h = byMac[m.mac];
     if (h) {
       if (hasOwnDns(h)) continue;                                   // it has a real DNS name now
-      take({ mac: m.mac, ip: h.ip, host: custom(m.mac) || m.host, seen: now, device: h.name });
+      // a placeholder name is replaced once the device has a real one
+      const upgrade = m.fallback && !custom(m.mac) && realBase(h);
+      if (upgrade) continue;                                        // (named fresh in step 2)
+      take({ mac: m.mac, ip: h.ip, host: custom(m.mac) || m.host, seen: now, device: h.name, fallback: !!m.fallback && !custom(m.mac) });
     } else if (macAt[m.ip] && macAt[m.ip] !== m.mac) continue;      // its address belongs to another device now
     else if (now - (m.seen || 0) < AWAY_KEEP) take(Object.assign({}, m, custom(m.mac) ? { host: custom(m.mac) } : {}));
   }
   // 2. newly named devices
   for (const h of Object.values(byMac)) {
-    if (skip(h.mac) || out.some((e) => e.mac === h.mac) || usedIp.has(h.ip) || !h.name || h.generic || hasOwnDns(h)) continue;
-    const base = custom(h.mac) ? null : slug(h.name);
-    if (!custom(h.mac) && (!base || /^(unknown|phone-or-computer)$/.test(base))) continue;
-    take({ mac: h.mac, ip: h.ip, host: custom(h.mac) || uniq(base), seen: now, device: h.name });
+    if (skip(h.mac) || out.some((e) => e.mac === h.mac) || usedIp.has(h.ip) || hasOwnDns(h)) continue;
+    if (custom(h.mac)) { take({ mac: h.mac, ip: h.ip, host: custom(h.mac), seen: now, device: h.name }); continue; }
+    const real = realBase(h);
+    take({ mac: h.mac, ip: h.ip, host: uniq(real || fallbackBase(h)), seen: now, device: h.name, fallback: !real });
   }
   return { want: out, userRemoved };
 }
