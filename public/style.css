@@ -74,6 +74,23 @@ label{display:grid;gap:4px;font-size:13px;color:var(--muted);min-width:0}
 .tabs .n{font:500 12px var(--body);color:var(--muted)}
 .sub-h{font:600 12px var(--body);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:10px 2px 2px}
 
+/* DNS panel */
+.dns{border:1px solid var(--rule);border-radius:10px;padding:10px 12px;margin:4px 0 12px;background:var(--row)}
+.dns h3{margin:0 0 6px;font:italic 700 18px/1.1 var(--display);text-transform:uppercase;letter-spacing:.02em}
+.kpis{display:flex;flex-wrap:wrap;gap:6px 18px;margin-bottom:8px}
+.kpi b{display:block;font:600 20px/1.1 var(--mono)}.kpi span{font-size:12px;color:var(--muted)}
+.cols{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.top{list-style:none;margin:0;padding:0;font-size:13px}
+.top li > span{min-width:0;overflow-wrap:anywhere}
+.top li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:3px 0;border-bottom:1px dashed var(--rule)}
+.top li:last-child{border-bottom:0}
+.top .bar{grid-column:1/-1;height:3px;border-radius:2px;background:var(--accent);opacity:.7}
+.top .bar.blk{background:var(--err)}
+.top small{grid-column:1/-1;color:var(--muted);font:11.5px var(--mono);overflow-wrap:anywhere}
+.top .c{font-family:var(--mono);color:var(--muted)}
+.dns h4{margin:4px 0;font:600 12px var(--body);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.names li{grid-template-columns:minmax(0,1fr) auto auto}
+
 /* the network list */
 .boxhead{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .boxhead h2{margin:0}

@@ -50,6 +50,10 @@ const DEFAULT_NET = {
   haToken: '',          // Home Assistant long-lived access token (never sent back to the page)
   piholeUrl: '',        // e.g. https://pi.hole (Pi-hole v6): host names, local DNS records, query counts
   piholePassword: '',   // its web password or an app password (never sent back to the page)
+  piholeNames: false,   // give named devices without a DNS name a local DNS record in Pi-hole
+  piholeSuffix: 'lan',  // ... as <name>.<suffix>
+  piholeManaged: [],    // records Lickety Split made, by device: { mac, ip, host, seen, device }. The only ones it changes.
+  piholeOverrides: {},  // per MAC: { host: 'my-name.lan' } (renamed on the page) or { skip: true } (removed: don't name it)
 };
 const DEFAULT_CONF = {
   owner: '',
@@ -247,7 +251,9 @@ try { netResult = JSON.parse(fs.readFileSync(NET_FILE, 'utf8')); } catch (e) { /
 function publicNet() {
   const n = conf.net;
   return { enabled: n.enabled, subnet: n.subnet, dns: n.dns, haUrl: n.haUrl, haTokenSet: !!n.haToken,
-    piholeUrl: n.piholeUrl, piholePasswordSet: !!n.piholePassword,
+    piholeUrl: n.piholeUrl, piholePasswordSet: !!n.piholePassword, piholeNames: n.piholeNames, piholeSuffix: n.piholeSuffix,
+    piholeManaged: (n.piholeManaged || []).filter((m) => m && m.mac),
+    piholeSkipped: Object.entries(n.piholeOverrides || {}).filter(([, o]) => o.skip).map(([mac]) => mac),
     autoSubnet: (netscan.localNets()[0] || {}).cidr || '' };
 }
 function scanNetwork() {
@@ -256,6 +262,9 @@ function scanNetwork() {
     piholeUrl: conf.net.piholeUrl, piholePassword: conf.net.piholePassword, dataDir: CFG.dataDir })
     .then((r) => {
       netResult = netscan.merge(netResult, r); netError = null;
+      return syncNames(netResult).then((sync) => { if (sync) netResult.piSync = sync; return r; });
+    })
+    .then((r) => {
       fs.writeFileSync(NET_FILE + '.tmp', JSON.stringify(netResult)); fs.renameSync(NET_FILE + '.tmp', NET_FILE);
       log(`Network check: ${r.hosts.length} devices in ${Math.round(r.took / 1000)} s (HA ${r.sources.ha}, Pi-hole ${r.sources.pihole}, mDNS ${r.sources.mdns}, DNS ${r.sources.dns})`);
       return netResult;
@@ -288,8 +297,49 @@ function cleanNet(b) {
     n.piholeUrl = v;
   }
   if (typeof b.piholePassword === 'string' && b.piholePassword) n.piholePassword = b.piholePassword.slice(0, 200);
+  if ('piholeNames' in b) n.piholeNames = !!b.piholeNames;
+  n.piholeOverrides = n.piholeOverrides || {};
+  if ('piholeSuffix' in b) {
+    const v = String(b.piholeSuffix || '').trim().toLowerCase().replace(/^\.+|\.+$/g, '');
+    if (!/^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?){0,3}$/.test(v)) throw new Error('The name ending should be like lan or home.arpa');
+    n.piholeSuffix = v;
+  }
   if (b.haTokenClear) n.haToken = '';
   return n;
+}
+
+// local DNS records in Pi-hole for devices that have a name but no DNS name (setting "piholeNames")
+let lastOnline = 0;
+async function syncNames(r, why) {
+  const n = conf.net, managed = (n.piholeManaged || []).filter((m) => m && m.mac);
+  if (!n.piholeUrl || !n.piholePassword || !r || (r.sources && r.sources.pihole !== 'ok')) return null;
+  if (!n.piholeNames && !managed.length) return null;
+  const online = r.hosts.filter((h) => h.online && h.ip).length;
+  // safety brake: a check that saw far fewer devices than before (Wi-Fi blip, wrong network) changes nothing
+  if (why !== 'page' && lastOnline && online < lastOnline * 0.5) {
+    log(`Pi-hole names: only ${online} devices seen (was ${lastOnline}); not changing anything this time`);
+    return { at: Date.now(), added: [], removed: [], count: managed.length, error: `Only ${online} devices answered (usually ${lastOnline}), so nothing was changed this time.` };
+  }
+  lastOnline = Math.max(online, Math.round(lastOnline * 0.9));
+  const suffix = n.piholeSuffix || 'lan';
+  try {
+    const res = await netscan.piholeSync(n.piholeUrl, n.piholePassword, (records) => {
+      const p = n.piholeNames ? netscan.planNames(r, { managed, suffix, overrides: n.piholeOverrides || {}, piRecords: records })
+        : { want: [], userRemoved: [] };
+      return Object.assign(p, { managed });
+    });
+    n.piholeOverrides = n.piholeOverrides || {};
+    for (const mac of res.userRemoved) (n.piholeOverrides[mac] = n.piholeOverrides[mac] || {}).skip = true;
+    n.piholeManaged = res.want; saveConf();
+    const plan = res;
+    if (res.added.length || res.removed.length || plan.userRemoved.length)
+      log(`Pi-hole names: ${res.added.length} added, ${res.removed.length} removed, ${plan.userRemoved.length} removed by hand`);
+    return { at: Date.now(), added: res.added, removed: res.removed, count: plan.want.length, error: null };
+  } catch (e) {
+    saveConf();
+    log('Pi-hole names: ' + e.message);
+    return { at: Date.now(), added: [], removed: [], count: managed.length, error: e.message };
+  }
 }
 
 // ---------- HTTP ----------
@@ -335,6 +385,26 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/network' && req.method === 'GET') {
       return send(res, 200, { settings: publicNet(), scanning: !!netRun, error: netError, result: netResult });
+    }
+    if (p === '/api/network/names' && req.method === 'POST') {       // rename / remove / allow again one Pi-hole name
+      const b = await readBody(req), mac = String(b.mac || '').toLowerCase();
+      if (!/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/.test(mac)) throw new Error('Which device?');
+      const o = conf.net.piholeOverrides = conf.net.piholeOverrides || {};
+      if (b.action === 'remove') o[mac] = { skip: true };
+      else if (b.action === 'allow') delete o[mac];
+      else if (b.action === 'rename') {
+        const suffix = conf.net.piholeSuffix || 'lan';
+        let h = String(b.host || '').trim().toLowerCase().replace(/\.+$/, '');
+        if (h && !h.includes('.')) h += '.' + suffix;
+        if (!/^[a-z0-9]([a-z0-9-]{0,62})(\.[a-z0-9]([a-z0-9-]{0,62}))+$/.test(h)) throw new Error('Use letters, numbers and dashes, like kitchen-plug');
+        const clash = (conf.net.piholeManaged || []).find((m) => m.host === h && m.mac !== mac);
+        if (clash) throw new Error(`${h} is already ${clash.device || clash.ip}`);
+        o[mac] = { host: h };
+      } else throw new Error('Unknown action.');
+      saveConf();
+      const sync = netResult ? await syncNames(netResult, 'page') : null;
+      if (sync && netResult) netResult.piSync = sync;
+      return send(res, 200, { settings: publicNet(), sync });
     }
     if (p === '/api/network/scan' && req.method === 'POST') {
       const r = await scanNetwork();

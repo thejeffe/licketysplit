@@ -19,7 +19,7 @@ const KEEP_DAYS = 30;            // forget a device not seen for this long
 const OUI_URL = 'https://www.wireshark.org/download/automated/data/manuf', OUI_MAX_AGE = 30 * 86400000;
 
 // names that are really IDs (Matter, Spotify Connect, UUIDs, bare MACs, "none-4") say nothing
-const JUNK_NAME = /^(?:[0-9a-f]{12,}(?:-[0-9a-f]+)*|[0-9a-f]{8}-[0-9a-f-]{20,}|none(?:-\d+)?|linux(?:-\d+)?|SpotifyConnect(?: #\d+| \(\d+\))?|Spotify Desktop Launcher|esp32-[0-9a-f]+)$/i;
+const JUNK_NAME = /^(?:[0-9a-f]{12,}(?:-[0-9a-f]+)*|[0-9a-f]{8}-[0-9a-f-]{20,}|none(?:-\d+)?|linux(?:-\d+)?|SpotifyConnect(?: #\d+| \(\d+\))?|Spotify Desktop Launcher|esp32-[0-9a-f]+|amzn\.dmgr:.*)$/i;
 const usable = (n) => !!n && !JUNK_NAME.test(String(n).trim());
 
 // ---------- MAC address makers (Wireshark's list, kept in the data folder, refreshed monthly) ----------
@@ -247,13 +247,37 @@ async function piholeInfo(url, password) {
   const sid = a.session && a.session.sid;
   if (a.session && a.session.totp && !sid) throw new Error('Pi-hole asks for a 2-factor code: use an app password instead');
   try {
-    const [devs, hosts, cnames, leases, clients] = await Promise.all([
+    const [devs, hosts, cnames, leases, clients, summary, topC, topB, topD, topBD] = await Promise.all([
       call('GET', '/api/network/devices?max_devices=1000&max_addresses=8', sid),
       call('GET', '/api/config/dns/hosts', sid).catch(() => null),
       call('GET', '/api/config/dns/cnameRecords', sid).catch(() => null),
       call('GET', '/api/dhcp/leases', sid).catch(() => null),
       call('GET', '/api/clients', sid).catch(() => null),
+      // statistics (Pi-hole's last 24 hours)
+      call('GET', '/api/stats/summary', sid).catch(() => null),
+      call('GET', '/api/stats/top_clients?count=15', sid).catch(() => null),
+      call('GET', '/api/stats/top_clients?blocked=true&count=15', sid).catch(() => null),
+      call('GET', '/api/stats/top_domains?count=10', sid).catch(() => null),
+      call('GET', '/api/stats/top_domains?blocked=true&count=15', sid).catch(() => null),
     ]);
+    // what the most-blocked devices keep asking for
+    const blockedBy = {};
+    await Promise.all(((topB && topB.clients) || []).slice(0, 8).map(async (c) => {
+      const q = await call('GET', `/api/queries?client_ip=${encodeURIComponent(c.ip)}&upstream=blocklist&length=500`, sid).catch(() => null);
+      const n = {};
+      for (const x of (q && q.queries) || []) if (x.domain) n[x.domain] = (n[x.domain] || 0) + 1;
+      blockedBy[c.ip] = Object.entries(n).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([domain, count]) => ({ domain, count }));
+    }));
+    const qs = (summary && summary.queries) || {};
+    const stats = summary ? {
+      total: qs.total || 0, blocked: qs.blocked || 0, percent: qs.percent_blocked || 0, cached: qs.cached || 0, forwarded: qs.forwarded || 0,
+      uniqueDomains: qs.unique_domains || 0, clients: (summary.clients && summary.clients.active) || 0,
+      listed: (summary.gravity && summary.gravity.domains_being_blocked) || 0,
+      topClients: ((topC && topC.clients) || []).map((c) => ({ ip: c.ip, name: c.name || '', count: c.count })),
+      topBlocked: ((topB && topB.clients) || []).map((c) => ({ ip: c.ip, name: c.name || '', count: c.count, domains: blockedBy[c.ip] || [] })),
+      topDomains: ((topD && topD.domains) || []).map((d) => ({ domain: d.domain, count: d.count })),
+      topBlockedDomains: ((topBD && topBD.domains) || []).map((d) => ({ domain: d.domain, count: d.count })),
+    } : null;
     const byIp = {}, byMac = {};
     const get = (ip) => byIp[ip] || (byIp[ip] = { names: [], records: [], comment: '', vendor: '', queries: 0, lastQuery: 0, lease: '' });
     for (const d of devs.devices || []) {
@@ -284,7 +308,7 @@ async function piholeInfo(url, password) {
       const e = byIp[k] || byMac[k];
       if (e) e.comment = c.comment;
     }
-    return { byIp, byMac };
+    return { byIp, byMac, stats, records: recs };
   } finally {
     if (sid) await call('DELETE', '/api/auth', sid).catch(() => {});   // free the session (Pi-hole allows only a few)
   }
@@ -357,6 +381,7 @@ async function scan(opts) {
     piholeInfo(opts.piholeUrl, opts.piholePassword).catch((e) => ({ error: e.name === 'TimeoutError' ? 'Pi-hole didn\u2019t answer' : e.message })),
   ]);
   sources.pihole = pi.skipped ? 'not set up' : pi.error || 'ok';
+  const dnsStats = pi.stats || null;
   sources.mdns = mdns.error || 'ok';
   sources.dns = rdns.error || 'ok';
   sources.ha = ha.skipped ? 'not set up' : ha.error || 'ok';
@@ -453,7 +478,88 @@ async function scan(opts) {
       group: isMatter ? 'matter' : isEsp ? 'updatable' : 'home', away: isEsp,
     });
   }
-  return { at: Date.now(), took: Date.now() - t0, subnet: range.cidr, sources, hosts };
+  return { at: Date.now(), took: Date.now() - t0, subnet: range.cidr, sources, hosts, dnsStats, piRecords: pi.records || null };
+}
+
+// ---------- naming devices in Pi-hole ----------
+// Devices with a good name (Home Assistant, mDNS, their own page…) but no DNS name get a local DNS record
+// "<ip> <name>.<suffix>" in Pi-hole. Each record Lickety Split makes is remembered by the device's MAC address
+// ({ mac, ip, host, seen }), so:
+//  - a device keeps its name; when its address changes the record follows it (old one removed, new one added),
+//  - when an address is reused by another device, the old record goes at once (a name never points elsewhere),
+//  - a device that's away keeps its record for AWAY_KEEP, then it's removed,
+//  - records Lickety Split didn't make are never touched, and a record you remove (here or in Pi-hole) stays removed.
+const AWAY_KEEP = 24 * 3600 * 1000;
+const slug = (n) => String(n).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/['’]/g, '')
+  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
+const lineOf = (e) => `${e.ip} ${e.host}`;
+function planNames(res, opts) {
+  const { managed = [], suffix = 'lan', overrides = {}, piRecords = [] } = opts;
+  const now = res.at || Date.now();
+  const ours = new Set(managed.map(lineOf));
+  const recSet = new Set(piRecords);
+  const userRemoved = managed.filter((m) => !recSet.has(lineOf(m))).map((m) => m.mac);   // gone from Pi-hole: removed by hand
+  const skip = (mac) => (overrides[mac] && overrides[mac].skip) || userRemoved.includes(mac);
+  const taken = new Set();                     // names in Pi-hole that aren't ours
+  for (const line of piRecords) if (!ours.has(line)) for (const n of line.split(/\s+/).slice(1)) taken.add(n.toLowerCase());
+  const ourNames = new Set(managed.map((m) => m.host));
+  const byMac = {}, macAt = {};
+  for (const h of res.hosts) if (h.online && h.ip && h.mac && !h.ip.includes(':')) { byMac[h.mac] = h; macAt[h.ip] = h.mac; }
+  const hasOwnDns = (h) => (h.dnsAll || []).some((n) => !ourNames.has(n));
+  const out = [], used = new Set(), usedIp = new Set();
+  const take = (e) => { out.push(e); used.add(e.host); usedIp.add(e.ip); };
+  const uniq = (base) => { let n = `${base}.${suffix}`, i = 2; while (taken.has(n) || used.has(n)) n = `${base}-${i++}.${suffix}`; return n; };
+  const custom = (mac) => overrides[mac] && overrides[mac].host;
+  // 1. records we already have: keep the name, follow the device
+  for (const m of managed) {
+    if (skip(m.mac)) continue;
+    const h = byMac[m.mac];
+    if (h) {
+      if (hasOwnDns(h)) continue;                                   // it has a real DNS name now
+      take({ mac: m.mac, ip: h.ip, host: custom(m.mac) || m.host, seen: now, device: h.name });
+    } else if (macAt[m.ip] && macAt[m.ip] !== m.mac) continue;      // its address belongs to another device now
+    else if (now - (m.seen || 0) < AWAY_KEEP) take(Object.assign({}, m, custom(m.mac) ? { host: custom(m.mac) } : {}));
+  }
+  // 2. newly named devices
+  for (const h of Object.values(byMac)) {
+    if (skip(h.mac) || out.some((e) => e.mac === h.mac) || usedIp.has(h.ip) || !h.name || hasOwnDns(h)) continue;
+    const base = custom(h.mac) ? null : slug(h.name);
+    if (!custom(h.mac) && (!base || /^(unknown|phone-or-computer)$/.test(base))) continue;
+    take({ mac: h.mac, ip: h.ip, host: custom(h.mac) || uniq(base), seen: now, device: h.name });
+  }
+  return { want: out, userRemoved };
+}
+// plan(records) gets Pi-hole's records as they are right now (read in the same session) and returns
+// { want, userRemoved, managed }; only the difference between managed and want is sent.
+async function piholeSync(url, password, plan) {
+  const base = url.replace(/\/+$/, '');
+  const call = async (method, p, sid, body) => {
+    const r = await fetch(base + p, { method, signal: AbortSignal.timeout(15000),
+      headers: Object.assign({ 'Content-Type': 'application/json' }, sid ? { 'X-FTL-SID': sid } : {}), body: body ? JSON.stringify(body) : undefined });
+    if (r.status === 401) throw new Error('Pi-hole refused the password');
+    if (!r.ok && r.status !== 404) { const j = await r.json().catch(() => ({})); throw new Error((j.error && (j.error.hint || j.error.message)) || 'HTTP ' + r.status); }
+    return r;
+  };
+  const a = await (await call('POST', '/api/auth', null, { password })).json();
+  const sid = a.session && a.session.sid;
+  const removed = [], added = [];
+  let p;
+  try {
+    const cur = await (await call('GET', '/api/config/dns/hosts', sid)).json();
+    const records = (((cur || {}).config || {}).dns || {}).hosts || [];
+    p = plan(records);
+    const recSet = new Set(records);
+    const wantLines = new Set(p.want.map(lineOf));
+    const had = new Set(p.managed.map(lineOf).filter((l) => recSet.has(l)));   // (gone already: nothing to delete)
+    for (const line of had) if (!wantLines.has(line)) { await call('DELETE', '/api/config/dns/hosts/' + encodeURIComponent(line), sid); removed.push(line); }
+    for (const line of wantLines) if (!had.has(line)) {
+      try { await call('PUT', '/api/config/dns/hosts/' + encodeURIComponent(line), sid); added.push(line); }
+      catch (e) { if (!/exist|duplicate|already/i.test(e.message)) throw e; added.push(line); }
+    }
+  } finally {
+    if (sid) await call('DELETE', '/api/auth', sid).catch(() => {});
+  }
+  return { added, removed, want: p.want, userRemoved: p.userRemoved };
 }
 
 // ---------- how a device's firmware gets updated ----------
@@ -530,7 +636,7 @@ function merge(prev, res) {
     hosts.push(Object.assign({}, o, { online: false }));
   }
   hosts.sort((a, b) => (b.online - a.online) || ip2n(a.ip) - ip2n(b.ip));
-  return { at: res.at, took: res.took, subnet: res.subnet, sources: res.sources, hosts };
+  return { at: res.at, took: res.took, subnet: res.subnet, sources: res.sources, hosts, dnsStats: res.dnsStats || null, piRecords: res.piRecords || null };
 }
 
-module.exports = { scan, merge, parseCidr, localNets, _test: { unescapeAvahi, mdnsFacts, HA_TEMPLATE } };
+module.exports = { scan, merge, parseCidr, localNets, planNames, piholeSync, _test: { unescapeAvahi, mdnsFacts, HA_TEMPLATE } };

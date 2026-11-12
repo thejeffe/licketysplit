@@ -152,14 +152,66 @@ function netRow(h) {
     upd = `<div class="upd"><b>Update:</b> ${esc(u.how)}${v}</div>`;
   }
   const names = [...new Set([...(h.dnsAll || [h.dns]), h.mdns])].filter(Boolean);
+  const piName = h.mac && ((NET.settings.piholeManaged || []).find((e) => e.mac === h.mac) || {}).host;
+  if (piName && !names.includes(piName)) names.unshift(piName);
   const q = h.queries ? `${h.queries.toLocaleString()} DNS queries${h.lastQuery ? ', last ' + ago(h.lastQuery) : ''}` : '';
   const addr = [h.ip || h.ipv6, ...names, h.mac, q].filter(Boolean).map(esc).join('<br>');
   return `<div class="row nd${h.online ? '' : ' gone'}"><div><b>${esc(nameOf(h))}</b>${badges.join('')}
     <small>${esc([h.area, h.desc].filter(Boolean).join(' · ') || 'Nothing announced')}</small>${upd}</div>
     <div class="addr">${addr}${act ? '<div style="margin-top:6px">' + act + '</div>' : ''}</div></div>`;
 }
+// Pi-hole: how much each device asks, what gets blocked, and the names Lickety Split keeps in Pi-hole
+function renderDns() {
+  const r = NET.result, st = NET.settings, d = r && r.dnsStats;
+  if (!d && !(st.piholeManaged || []).length) { $('dnsBox').innerHTML = ''; return; }
+  const byIp = {};
+  for (const h of (r && r.hosts) || []) if (h.ip) byIp[h.ip] = h;
+  const who = (c) => { const h = byIp[c.ip]; return h ? nameOf(h) : c.name ? c.name.split('.')[0] : c.ip; };
+  const n = (x) => Number(x || 0).toLocaleString();
+  let html = '';
+  if (d) {
+    const maxC = Math.max(1, ...d.topClients.map((c) => c.count)), maxB = Math.max(1, ...d.topBlocked.map((c) => c.count));
+    const li = (c, max, blk) => {
+      const h = byIp[c.ip], tot = blk ? (d.topClients.find((x) => x.ip === c.ip) || {}).count : 0;
+      const doms = blk && c.domains && c.domains.length ? `<small>${c.domains.map((x) => esc(x.domain) + ' ×' + n(x.count)).join(' · ')}</small>` : '';
+      return `<li><span title="${esc(c.ip)}">${esc(who(c))}</span><span class="c">${n(c.count)}${tot ? ' · ' + Math.round(100 * c.count / tot) + '%' : ''}</span>
+        <div class="bar${blk ? ' blk' : ''}" style="width:${Math.max(2, Math.round(100 * c.count / max))}%"></div>${doms}</li>`;
+    };
+    html += `<div class="dns"><h3>DNS (Pi-hole, last 24 hours)</h3>
+      <div class="kpis"><div class="kpi"><b>${n(d.total)}</b><span>queries</span></div><div class="kpi"><b>${n(d.blocked)}</b><span>blocked (${(+d.percent || 0).toFixed(1)}%)</span></div>
+      <div class="kpi"><b>${n(d.clients)}</b><span>devices asking</span></div><div class="kpi"><b>${n(d.uniqueDomains)}</b><span>different names</span></div>
+      <div class="kpi"><b>${n(d.listed)}</b><span>on the block lists</span></div></div>
+      <div class="cols"><div><h4>Most queries</h4><ul class="top">${d.topClients.map((c) => li(c, maxC, false)).join('')}</ul></div>
+      <div><h4>Most blocked (and what they ask for)</h4><ul class="top">${d.topBlocked.map((c) => li(c, maxB, true)).join('') || '<li>Nothing blocked.</li>'}</ul></div>
+      <div><h4>Most blocked names</h4><ul class="top">${d.topBlockedDomains.map((x) => `<li><span>${esc(x.domain)}</span><span class="c">${n(x.count)}</span></li>`).join('')}</ul>
+      <h4 style="margin-top:10px">Most asked-for names</h4><ul class="top">${d.topDomains.map((x) => `<li><span>${esc(x.domain)}</span><span class="c">${n(x.count)}</span></li>`).join('')}</ul></div></div></div>`;
+  }
+  const m = st.piholeManaged || [], sk = st.piholeSkipped || [];
+  if (st.piholeNames || m.length || sk.length) {
+    const sync = r && r.piSync;
+    const dev = (mac) => ((r && r.hosts) || []).find((h) => h.mac === mac);
+    html += `<details class="dns" ${m.length < 12 ? 'open' : ''}><summary><h3 style="display:inline">Names in Pi-hole</h3> <span class="c">${m.length}</span></summary>
+      <p class="note">${st.piholeNames ? 'Kept up to date after every check.' : 'Naming is off in ⚙ Settings: these names are removed at the next check.'}${sync ? ` Last change ${ago(sync.at)}: ${sync.added.length} added, ${sync.removed.length} removed.` : ''}${sync && sync.error ? ' ' + esc(sync.error) : ''}</p>
+      <ul class="top names">${m.map((e) => { const h = dev(e.mac); return `<li><span><b>${esc(e.host)}</b> → ${esc(e.ip)}<small>${esc(h ? nameOf(h) : e.device || '')} · ${esc(e.mac)}${h && !h.online ? ' · away' : ''}</small></span>
+        <button type="button" class="small" data-name="rename" data-mac="${esc(e.mac)}" data-host="${esc(e.host)}">Rename</button><button type="button" class="small" data-name="remove" data-mac="${esc(e.mac)}" title="Remove this name and don't name the device again">Remove</button></li>`; }).join('') || '<li>No names yet: they\u2019re made at the next check.</li>'}</ul>
+      ${sk.length ? `<h4 style="margin-top:8px">Not named (removed by you)</h4><ul class="top names">${sk.map((mac) => { const h = dev(mac); return `<li><span>${esc(h ? nameOf(h) : mac)}<small>${esc(mac)}</small></span><span></span><button type="button" class="small" data-name="allow" data-mac="${esc(mac)}">Name it again</button></li>`; }).join('')}</ul>` : ''}</details>`;
+  }
+  $('dnsBox').innerHTML = html;
+}
+$('dnsBox').addEventListener('click', async (ev) => {
+  const b = ev.target.closest('button[data-name]'); if (!b) return;
+  const body = { action: b.dataset.name, mac: b.dataset.mac };
+  if (body.action === 'rename') {
+    const v = prompt('New name for this device in Pi-hole:', b.dataset.host); if (!v) return; body.host = v;
+  } else if (body.action === 'remove' && !confirm(`Remove ${b.closest('li').querySelector('b').textContent} from Pi-hole? Lickety Split won't name this device again (unless you choose "Name it again").`)) return;
+  b.disabled = true;
+  try { const j = await api('POST', 'api/network/names', body); NET.settings = j.settings; if (j.sync && NET.result) NET.result.piSync = j.sync; S.net = j.settings; renderDns(); if (j.sync && j.sync.error) say($('msg'), j.sync.error, 'err'); }
+  catch (e) { say($('msg'), e.message, 'err'); b.disabled = false; }
+});
+
 function renderNet() {
   if (!NET) return;
+  renderDns();
   const st = NET.settings, r = NET.result, q = $('netFilter').value.trim().toLowerCase();
   $('netCount').textContent = r ? String(r.hosts.filter((h) => h.online).length) : '';
   const src = r && r.sources ? Object.entries({ 'Home Assistant': r.sources.ha, 'Pi-hole': r.sources.pihole || 'not set up', mDNS: r.sources.mdns, DNS: r.sources.dns })
@@ -226,7 +278,7 @@ $('setBtn').addEventListener('click', () => {
   $('nOn').checked = !!n.enabled; $('nSubnet').value = n.subnet || ''; $('nSubnet').placeholder = n.autoSubnet || '192.168.1.0/24';
   $('nDns').value = n.dns || ''; $('nHaUrl').value = n.haUrl || ''; $('nHaToken').value = '';
   $('nHaToken').placeholder = n.haTokenSet ? 'Set (leave blank to keep it)' : 'Paste a token';
-  $('nPiUrl').value = n.piholeUrl || ''; $('nPiPw').value = '';
+  $('nPiUrl').value = n.piholeUrl || ''; $('nPiPw').value = ''; $('nPiNames').checked = !!n.piholeNames; $('nPiSuffix').value = n.piholeSuffix || 'lan';
   $('nPiPw').placeholder = n.piholePasswordSet ? 'Set (leave blank to keep it)' : 'Pi-hole\u2019s password';
   $('nHaNote').textContent = n.haTokenSet ? 'A Home Assistant token is set. It stays on this server and is never shown again.' : 'Without a token the list still works, but has no Home Assistant names, rooms or update versions.';
   say($('sMsg'), ''); $('setDlg').showModal();
@@ -235,7 +287,7 @@ $('sCancel').addEventListener('click', () => $('setDlg').close());
 $('setForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   try {
-    await api('PUT', 'api/settings', { owner: $('sOwner').value, net: { enabled: $('nOn').checked, subnet: $('nSubnet').value, dns: $('nDns').value, haUrl: $('nHaUrl').value, haToken: $('nHaToken').value, piholeUrl: $('nPiUrl').value, piholePassword: $('nPiPw').value } });
+    await api('PUT', 'api/settings', { owner: $('sOwner').value, net: { enabled: $('nOn').checked, subnet: $('nSubnet').value, dns: $('nDns').value, haUrl: $('nHaUrl').value, haToken: $('nHaToken').value, piholeUrl: $('nPiUrl').value, piholePassword: $('nPiPw').value, piholeNames: $('nPiNames').checked, piholeSuffix: $('nPiSuffix').value || 'lan' } });
     $('setDlg').close(); say($('msg'), 'Saved.', 'ok'); await load(); loadNet();
   }
   catch (e) { say($('sMsg'), e.message, 'err'); }
