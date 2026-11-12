@@ -151,13 +151,14 @@ function netRow(h) {
     if (u.available) badges.push('<span class="badge new">update available</span>');
     upd = `<div class="upd"><b>Update:</b> ${esc(u.how)}${v}</div>`;
   }
-  const names = [...new Set([...(h.dnsAll || [h.dns]), h.mdns])].filter(Boolean);
-  const piName = h.mac && ((NET.settings.piholeManaged || []).find((e) => e.mac === h.mac) || {}).host;
-  if (piName && !names.includes(piName)) names.unshift(piName);
+  const nm = (h.mac && NET.names && NET.names[h.mac]) || {};
+  const names = [...new Set([...(h.dnsAll || [h.dns]), h.mdns])].filter((x) => x && x !== nm.dns);
+  const dnsLine = nm.dns ? `<div class="upd"><b>DNS name:</b> <span class="mono">${esc(nm.dns)}</span></div>`
+    : nm.suggest ? `<div class="upd"><b>Suggested name:</b> <span class="mono">${esc(nm.suggest)}</span> <span class="muted">(not in Pi-hole${NET.settings.piholeNames ? ' yet: added at the next check' : ''})</span></div>` : '';
   const q = h.queries ? `${h.queries.toLocaleString()} DNS queries${h.lastQuery ? ', last ' + ago(h.lastQuery) : ''}` : '';
   const addr = [h.ip || h.ipv6, ...names, h.mac, q].filter(Boolean).map(esc).join('<br>');
   return `<div class="row nd${h.online ? '' : ' gone'}"><div><b>${esc(nameOf(h))}</b>${badges.join('')}
-    <small>${esc([h.area, h.desc].filter(Boolean).join(' · ') || 'Nothing announced')}</small>${upd}</div>
+    <small>${esc([h.area, h.desc].filter(Boolean).join(' · ') || 'Nothing announced')}</small>${upd}${dnsLine}</div>
     <div class="addr">${addr}${act ? '<div style="margin-top:6px">' + act + '</div>' : ''}</div></div>`;
 }
 // Pi-hole: how much each device asks, what gets blocked, and the names Lickety Split keeps in Pi-hole
@@ -205,7 +206,7 @@ $('dnsBox').addEventListener('click', async (ev) => {
     const v = prompt('New name for this device in Pi-hole:', b.dataset.host); if (!v) return; body.host = v;
   } else if (body.action === 'remove' && !confirm(`Remove ${b.closest('li').querySelector('b').textContent} from Pi-hole? Lickety Split won't name this device again (unless you choose "Name it again").`)) return;
   b.disabled = true;
-  try { const j = await api('POST', 'api/network/names', body); NET.settings = j.settings; if (j.sync && NET.result) NET.result.piSync = j.sync; S.net = j.settings; renderDns(); if (j.sync && j.sync.error) say($('msg'), j.sync.error, 'err'); }
+  try { const j = await api('POST', 'api/network/names', body); NET.settings = j.settings; NET.names = j.names; if (j.sync && NET.result) NET.result.piSync = j.sync; S.net = j.settings; renderDns(); if (j.sync && j.sync.error) say($('msg'), j.sync.error, 'err'); }
   catch (e) { say($('msg'), e.message, 'err'); b.disabled = false; }
 });
 
@@ -225,7 +226,7 @@ function renderNet() {
   for (const d of $('netList').querySelectorAll('details[data-g]')) open[d.dataset.g] = d.open;
   $('netList').innerHTML = GROUPS.map((g) => {
     const all = r.hosts.filter((h) => h.group === g.id);
-    const list = q ? all.filter((h) => [nameOf(h), h.desc, h.area, h.ip, h.ipv6, h.dns, h.mdns, h.mac, h.update && h.update.how].join(' ').toLowerCase().includes(q)) : all;
+    const list = q ? all.filter((h) => [nameOf(h), h.desc, h.area, h.ip, h.ipv6, h.dns, h.mdns, h.mac, h.update && h.update.how, ((NET.names || {})[h.mac] || {}).suggest, ((NET.names || {})[h.mac] || {}).dns].join(' ').toLowerCase().includes(q)) : all;
     if (!all.length) return '';
     const isOpen = g.id in open ? open[g.id] : true;
     let rows;

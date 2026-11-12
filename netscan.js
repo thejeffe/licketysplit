@@ -227,7 +227,10 @@ async function haDevices(url, token) {
     body: JSON.stringify({ template: HA_TEMPLATE }), signal: AbortSignal.timeout(30000),
   });
   if (r.status === 401) throw new Error('Home Assistant refused the token');
-  if (!r.ok) throw new Error(`Home Assistant answered ${r.status}`);
+  if (!r.ok) {
+    const t = (await r.text().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 300);
+    throw new Error(`Home Assistant answered ${r.status}${t ? ': ' + t : ''}`);
+  }
   const j = JSON.parse(await r.text());
   return { error: null, devices: j.devices || [], trackers: j.trackers || [], updates: j.updates || [] };
 }

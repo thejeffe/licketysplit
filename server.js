@@ -308,6 +308,24 @@ function cleanNet(b) {
   return n;
 }
 
+// per device (MAC): its DNS name, or the name Lickety Split suggests (and would give it in Pi-hole)
+function dnsNames() {
+  const out = {};
+  if (!netResult) return out;
+  const n = conf.net, suffix = n.piholeSuffix || 'lan';
+  const managed = (n.piholeManaged || []).filter((m) => m && m.mac);
+  const ourHosts = new Set(managed.map((m) => m.host));
+  for (const m of managed) out[m.mac] = { dns: m.host, ours: true };
+  // what a naming run would do now, ignoring "removed" marks only for showing (removed ones show no suggestion)
+  const plan = netscan.planNames(netResult, { managed, suffix, overrides: n.piholeOverrides || {}, piRecords: (netResult.piRecords || []).concat(managed.map((m) => `${m.ip} ${m.host}`)) });
+  for (const e of plan.want) if (!out[e.mac]) out[e.mac] = { suggest: e.host };
+  for (const h of netResult.hosts) {
+    const own = (h.dnsAll || []).filter((x) => !ourHosts.has(x));
+    if (h.mac && own.length) out[h.mac] = { dns: own[0] };
+  }
+  return out;
+}
+
 // local DNS records in Pi-hole for devices that have a name but no DNS name (setting "piholeNames")
 let lastOnline = 0;
 async function syncNames(r, why) {
@@ -384,7 +402,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { owner: conf.owner, net: publicNet() });
     }
     if (p === '/api/network' && req.method === 'GET') {
-      return send(res, 200, { settings: publicNet(), scanning: !!netRun, error: netError, result: netResult });
+      return send(res, 200, { settings: publicNet(), scanning: !!netRun, error: netError, result: netResult, names: dnsNames() });
     }
     if (p === '/api/network/names' && req.method === 'POST') {       // rename / remove / allow again one Pi-hole name
       const b = await readBody(req), mac = String(b.mac || '').toLowerCase();
@@ -404,11 +422,11 @@ const server = http.createServer(async (req, res) => {
       saveConf();
       const sync = netResult ? await syncNames(netResult, 'page') : null;
       if (sync && netResult) netResult.piSync = sync;
-      return send(res, 200, { settings: publicNet(), sync });
+      return send(res, 200, { settings: publicNet(), sync, names: dnsNames() });
     }
     if (p === '/api/network/scan' && req.method === 'POST') {
       const r = await scanNetwork();
-      return send(res, 200, { settings: publicNet(), scanning: false, error: null, result: r });
+      return send(res, 200, { settings: publicNet(), scanning: false, error: null, result: r, names: dnsNames() });
     }
     if (p === '/api/refresh' && req.method === 'POST') { const r = await refreshAll(); return send(res, 200, { results: r.results, firmware: catalog() }); }
     if (p === '/api/devices' && req.method === 'POST') {

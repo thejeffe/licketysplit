@@ -106,6 +106,7 @@ label{display:grid;gap:4px;font-size:13px;color:var(--muted);min-width:0}
 .nd .addr{font:12px var(--mono);color:var(--muted);text-align:right;overflow-wrap:anywhere}
 .nd .upd{font-size:12.5px;margin-top:3px;overflow-wrap:anywhere}
 .nd .upd b{font-weight:600}
+.mono{font-family:var(--mono);font-size:12px}.muted{color:var(--muted)}
 .nd.gone{opacity:.55}
 .badge{display:inline-block;font:600 10.5px/1 var(--body);letter-spacing:.04em;text-transform:uppercase;padding:3px 6px;border-radius:99px;border:1px solid var(--rule);color:var(--muted);margin-left:6px;vertical-align:2px}
 .badge.matter{border-color:#7b61ff;color:#7b61ff}.badge.ok{border-color:var(--ok);color:var(--ok)}.badge.new{border-color:var(--accent);color:var(--accent)}
