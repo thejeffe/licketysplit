@@ -691,7 +691,9 @@ function merge(prev, res) {
   });
   for (const o of Object.values(old)) {
     if (seen.has(o.key) || res.at - o.lastSeen > KEEP_DAYS * 86400000) continue;
-    if (o.ip && !o.mac && res.hosts.some((h) => h.ip === o.ip && !h.mac)) continue;
+    // an entry known only by address (no MAC: a Matter node, a Home Assistant device) whose address now belongs
+    // to a device found this time is the same device, seen better: drop the old one
+    if (o.ip && !o.mac && res.hosts.some((h) => h.ip === o.ip)) continue;
     hosts.push(Object.assign({}, o, { online: false }));
   }
   hosts.sort((a, b) => (b.online - a.online) || ip2n(a.ip) - ip2n(b.ip));
