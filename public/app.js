@@ -171,21 +171,19 @@ function renderDns() {
   const n = (x) => Number(x || 0).toLocaleString();
   let html = '';
   if (d) {
-    const maxC = Math.max(1, ...d.topClients.map((c) => c.count)), maxB = Math.max(1, ...d.topBlocked.map((c) => c.count));
-    const li = (c, max, blk) => {
-      const h = byIp[c.ip], tot = blk ? (d.topClients.find((x) => x.ip === c.ip) || {}).count : 0;
-      const doms = blk && c.domains && c.domains.length ? `<small>${c.domains.map((x) => esc(x.domain) + ' ×' + n(x.count)).join(' · ')}</small>` : '';
-      return `<li><span title="${esc(c.ip)}">${esc(who(c))}</span><span class="c">${n(c.count)}${tot ? ' · ' + Math.round(100 * c.count / tot) + '%' : ''}</span>
-        <div class="bar${blk ? ' blk' : ''}" style="width:${Math.max(2, Math.round(100 * c.count / max))}%"></div>${doms}</li>`;
+    const k = (x) => { x = Number(x || 0); return x >= 1e6 ? (x / 1e6).toFixed(1) + 'M' : x >= 1e4 ? Math.round(x / 1e3) + 'k' : x >= 1e3 ? (x / 1e3).toFixed(1) + 'k' : String(x); };
+    const total = {};
+    for (const c of d.topClients) total[c.ip] = c.count;
+    const row = (c, blk) => {
+      const pct = blk && total[c.ip] ? ` · ${Math.round(100 * c.count / total[c.ip])}%` : '';
+      const doms = blk && c.domains && c.domains.length ? `<small>${c.domains.slice(0, 2).map((x) => esc(x.domain)).join(', ')}</small>` : '';
+      return `<li><span title="${esc(c.ip)}">${esc(who(c))}</span><span class="c">${k(c.count)}${pct}</span>${doms}</li>`;
     };
-    html += `<div class="dns"><h3>DNS (Pi-hole, last 24 hours)</h3>
-      <div class="kpis"><div class="kpi"><b>${n(d.total)}</b><span>queries</span></div><div class="kpi"><b>${n(d.blocked)}</b><span>blocked (${(+d.percent || 0).toFixed(1)}%)</span></div>
-      <div class="kpi"><b>${n(d.clients)}</b><span>devices asking</span></div><div class="kpi"><b>${n(d.uniqueDomains)}</b><span>different names</span></div>
-      <div class="kpi"><b>${n(d.listed)}</b><span>on the block lists</span></div></div>
-      <div class="cols"><div><h4>Most queries</h4><ul class="top">${d.topClients.map((c) => li(c, maxC, false)).join('')}</ul></div>
-      <div><h4>Most blocked (and what they ask for)</h4><ul class="top">${d.topBlocked.map((c) => li(c, maxB, true)).join('') || '<li>Nothing blocked.</li>'}</ul></div>
-      <div><h4>Most blocked names</h4><ul class="top">${d.topBlockedDomains.map((x) => `<li><span>${esc(x.domain)}</span><span class="c">${n(x.count)}</span></li>`).join('')}</ul>
-      <h4 style="margin-top:10px">Most asked-for names</h4><ul class="top">${d.topDomains.map((x) => `<li><span>${esc(x.domain)}</span><span class="c">${n(x.count)}</span></li>`).join('')}</ul></div></div></div>`;
+    html += `<div class="dns"><h3>DNS · last 24 h</h3>
+      <p class="note" style="margin:0 0 6px">${k(d.total)} queries · ${k(d.blocked)} blocked (${(+d.percent || 0).toFixed(1)}%) · ${n(d.clients)} devices</p>
+      <div class="cols"><div><h4>Busiest</h4><ul class="tl">${d.topClients.slice(0, 5).map((c) => row(c, false)).join('')}</ul></div>
+      <div><h4>Most blocked</h4><ul class="tl">${d.topBlocked.slice(0, 5).map((c) => row(c, true)).join('') || '<li>Nothing blocked.</li>'}</ul></div></div>
+      ${d.topBlockedDomains.length ? `<p class="note" style="margin:6px 0 0"><b>Top blocked:</b> ${d.topBlockedDomains.slice(0, 5).map((x) => `${esc(x.domain)} (${k(x.count)})`).join(', ')}</p>` : ''}</div>`;
   }
   const m = st.piholeManaged || [], sk = st.piholeSkipped || [];
   if (st.piholeNames || m.length || sk.length) {
@@ -193,9 +191,9 @@ function renderDns() {
     const dev = (mac) => ((r && r.hosts) || []).find((h) => h.mac === mac);
     html += `<details class="dns" ${m.length < 12 ? 'open' : ''}><summary><h3 style="display:inline">Names in Pi-hole</h3> <span class="c">${m.length}</span></summary>
       <p class="note">${st.piholeNames ? 'Kept up to date after every check.' : 'Naming is off in ⚙ Settings: these names are removed at the next check.'}${sync ? ` Last change ${ago(sync.at)}: ${sync.added.length} added, ${sync.removed.length} removed.` : ''}${sync && sync.error ? ' ' + esc(sync.error) : ''}</p>
-      <ul class="top names">${m.map((e) => { const h = dev(e.mac); return `<li><span><b>${esc(e.host)}</b> → ${esc(e.ip)}<small>${esc(h ? nameOf(h) : e.device || '')} · ${esc(e.mac)}${h && !h.online ? ' · away' : ''}</small></span>
+      <ul class="tl names">${m.map((e) => { const h = dev(e.mac); return `<li><span><b>${esc(e.host)}</b> → ${esc(e.ip)}<small>${esc(h ? nameOf(h) : e.device || '')} · ${esc(e.mac)}${h && !h.online ? ' · away' : ''}</small></span>
         <button type="button" class="small" data-name="rename" data-mac="${esc(e.mac)}" data-host="${esc(e.host)}">Rename</button><button type="button" class="small" data-name="remove" data-mac="${esc(e.mac)}" title="Remove this name and don't name the device again">Remove</button></li>`; }).join('') || '<li>No names yet: they\u2019re made at the next check.</li>'}</ul>
-      ${sk.length ? `<h4 style="margin-top:8px">Not named (removed by you)</h4><ul class="top names">${sk.map((mac) => { const h = dev(mac); return `<li><span>${esc(h ? nameOf(h) : mac)}<small>${esc(mac)}</small></span><span></span><button type="button" class="small" data-name="allow" data-mac="${esc(mac)}">Name it again</button></li>`; }).join('')}</ul>` : ''}</details>`;
+      ${sk.length ? `<h4 style="margin-top:8px">Not named (removed by you)</h4><ul class="tl names">${sk.map((mac) => { const h = dev(mac); return `<li><span>${esc(h ? nameOf(h) : mac)}<small>${esc(mac)}</small></span><span></span><button type="button" class="small" data-name="allow" data-mac="${esc(mac)}">Name it again</button></li>`; }).join('')}</ul>` : ''}</details>`;
   }
   $('dnsBox').innerHTML = html;
 }

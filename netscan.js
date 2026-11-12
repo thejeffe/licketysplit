@@ -19,7 +19,7 @@ const KEEP_DAYS = 30;            // forget a device not seen for this long
 const OUI_URL = 'https://www.wireshark.org/download/automated/data/manuf', OUI_MAX_AGE = 30 * 86400000;
 
 // names that are really IDs (Matter, Spotify Connect, UUIDs, bare MACs, "none-4") say nothing
-const JUNK_NAME = /^(?:[0-9a-f]{12,}(?:-[0-9a-f]+)*|[0-9a-f]{8}-[0-9a-f-]{20,}|none(?:-\d+)?|linux(?:-\d+)?|SpotifyConnect(?: #\d+| \(\d+\))?|Spotify Desktop Launcher|esp32-[0-9a-f]+|amzn\.dmgr:.*)$/i;
+const JUNK_NAME = /^(?:[0-9a-f]{12,}(?:-[0-9a-f]+)*|[0-9a-f]{8}-[0-9a-f-]{20,}|none(?:-\d+)?|linux(?:-\d+)?|SpotifyConnect(?: #\d+| \(\d+\))?|Spotify Desktop Launcher|esp32-[0-9a-f]+|amzn\.dmgr:.*|(?:ip-)?\d{1,3}(?:[-.]\d{1,3}){3}(?:\..*)?)$/i;
 const usable = (n) => !!n && !JUNK_NAME.test(String(n).trim());
 
 // ---------- MAC address makers (Wireshark's list, kept in the data folder, refreshed monthly) ----------
