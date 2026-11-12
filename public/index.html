@@ -27,8 +27,12 @@
   <div class="topacts"><button type="button" id="refresh">Check for new builds</button><button type="button" id="reloadBtn" aria-label="Reload" title="Reload the page (for the home-screen app)">↻</button><button type="button" id="setBtn" aria-label="Settings" title="Settings">⚙</button></div>
  </header>
  <p class="msg" id="msg" role="status"></p>
+ <nav class="tabs" role="tablist">
+  <button type="button" role="tab" data-tab="fw" aria-selected="true">Firmware</button>
+  <button type="button" role="tab" data-tab="net" aria-selected="false">Network <span class="n" id="netCount"></span></button>
+ </nav>
 
- <section class="box">
+ <section class="box" data-pane="fw">
   <h2>Your devices</h2>
   <p class="note">Update over Wi-Fi: sends the newest build to a device that's already running. Its settings are kept, and it restarts when it's done.</p>
   <div class="list" id="devs"></div>
@@ -40,13 +44,13 @@
   </form>
  </section>
 
- <section class="box">
+ <section class="box" data-pane="fw">
   <h2>Flash over USB</h2>
   <p class="note" id="usbNote"></p>
   <div class="list" id="cards"></div>
  </section>
 
- <section class="box" id="netBox">
+ <section class="box" id="netBox" data-pane="net" hidden>
   <div class="boxhead"><h2>On the network</h2><button type="button" class="small" id="netScan">Check now</button></div>
   <p class="note" id="netNote"></p>
   <input id="netFilter" type="search" placeholder="Filter by name, maker, address…" autocapitalize="off" spellcheck="false" aria-label="Filter the devices">
@@ -69,6 +73,10 @@
   <label>Home Assistant address (names, rooms, update versions)<input id="nHaUrl" type="text" autocapitalize="off" spellcheck="false" placeholder="http://homeassistant.local:8123"></label>
   <label>Home Assistant token (Profile → Security → Long-lived access tokens)<input id="nHaToken" type="password" autocomplete="off" spellcheck="false"></label>
   <p class="note" id="nHaNote"></p>
+  <div class="two">
+   <label>Pi-hole address (host names, local DNS, queries)<input id="nPiUrl" type="text" autocapitalize="off" spellcheck="false" placeholder="https://pi.hole"></label>
+   <label>Pi-hole password (or an app password)<input id="nPiPw" type="password" autocomplete="off" spellcheck="false"></label>
+  </div>
   <div class="acts"><span class="msg" id="sMsg" role="status"></span><button type="button" id="sCancel">Cancel</button><button type="submit" class="pri">Save</button></div>
  </form>
 </dialog>

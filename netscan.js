@@ -231,6 +231,65 @@ async function haDevices(url, token) {
   const j = JSON.parse(await r.text());
   return { error: null, devices: j.devices || [], trackers: j.trackers || [], updates: j.updates || [] };
 }
+// ---------- Pi-hole (v6 API): its network table, local DNS records, DHCP leases, client comments ----------
+async function piholeInfo(url, password) {
+  if (!url) return { skipped: true };
+  const base = url.replace(/\/+$/, '').replace(/\/admin$/, '');
+  const call = async (method, p, sid, body) => {
+    const r = await fetch(base + p, { method, signal: AbortSignal.timeout(15000),
+      headers: Object.assign({ 'Content-Type': 'application/json' }, sid ? { 'X-FTL-SID': sid } : {}), body: body ? JSON.stringify(body) : undefined });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) throw new Error('unauthorized');
+    if (!r.ok) throw new Error((j.error && j.error.message) || 'HTTP ' + r.status);
+    return j;
+  };
+  const a = await call('POST', '/api/auth', null, { password: password || '' }).catch((e) => { throw new Error(/unauthor|password/i.test(e.message) ? 'Pi-hole refused the password' : e.message); });
+  const sid = a.session && a.session.sid;
+  if (a.session && a.session.totp && !sid) throw new Error('Pi-hole asks for a 2-factor code: use an app password instead');
+  try {
+    const [devs, hosts, cnames, leases, clients] = await Promise.all([
+      call('GET', '/api/network/devices?max_devices=1000&max_addresses=8', sid),
+      call('GET', '/api/config/dns/hosts', sid).catch(() => null),
+      call('GET', '/api/config/dns/cnameRecords', sid).catch(() => null),
+      call('GET', '/api/dhcp/leases', sid).catch(() => null),
+      call('GET', '/api/clients', sid).catch(() => null),
+    ]);
+    const byIp = {}, byMac = {};
+    const get = (ip) => byIp[ip] || (byIp[ip] = { names: [], records: [], comment: '', vendor: '', queries: 0, lastQuery: 0, lease: '' });
+    for (const d of devs.devices || []) {
+      const mac = String(d.hwaddr || '').toLowerCase();
+      for (const a2 of d.ips || []) {
+        if (!a2.ip || a2.ip.includes(':')) continue;
+        const e = get(a2.ip);
+        if (a2.name && !e.names.includes(a2.name)) e.names.push(a2.name);
+        if (/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/.test(mac)) { e.mac = mac; byMac[mac] = e; }
+        e.vendor = e.vendor || d.macVendor || '';
+        e.queries = Math.max(e.queries, d.numQueries || 0);
+        e.lastQuery = Math.max(e.lastQuery, (d.lastQuery || 0) * 1000);
+      }
+    }
+    const recs = (((hosts || {}).config || {}).dns || {}).hosts || [];
+    for (const line of recs) {
+      const [ip, ...names] = String(line).trim().split(/\s+/);
+      if (ip && !ip.includes(':')) for (const n of names) { const e = get(ip); if (!e.records.includes(n)) e.records.push(n); }
+    }
+    const cn = (((cnames || {}).config || {}).dns || {}).cnameRecords || [];
+    const cnameOf = {};
+    for (const line of cn) { const [alias, target] = String(line).split(','); if (alias && target) (cnameOf[target.trim()] = cnameOf[target.trim()] || []).push(alias.trim()); }
+    for (const e of Object.values(byIp)) for (const n of [...e.records, ...e.names]) for (const al of cnameOf[n] || []) if (!e.records.includes(al)) e.records.push(al);
+    for (const l of (leases || {}).leases || []) { if (l.ip && !l.ip.includes(':')) { const e = get(l.ip); e.lease = l.name && l.name !== '*' ? l.name : ''; } }
+    for (const c of (clients || {}).clients || []) {
+      if (!c.comment) continue;
+      const k = String(c.client || '').toLowerCase();
+      const e = byIp[k] || byMac[k];
+      if (e) e.comment = c.comment;
+    }
+    return { byIp, byMac };
+  } finally {
+    if (sid) await call('DELETE', '/api/auth', sid).catch(() => {});   // free the session (Pi-hole allows only a few)
+  }
+}
+
 const urlHost = (u) => { try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ''; } };
 
 // ---------- 5. its web page ----------
@@ -290,12 +349,14 @@ async function scan(opts) {
   const live = ips.filter((ip) => answer[ip] || arp[ip] || (self && ip === self.ip));
   const sources = {};
 
-  const [mdns, rdns, ha, makers] = await Promise.all([
+  const [mdns, rdns, ha, makers, pi] = await Promise.all([
     mdnsP,
     reverseNames(live, opts.dns),
     haDevices(opts.haUrl, opts.haToken).catch((e) => ({ error: e.name === 'TimeoutError' ? 'Home Assistant didn’t answer' : e.message, devices: [], trackers: [], updates: [] })),
     ouiP,
+    piholeInfo(opts.piholeUrl, opts.piholePassword).catch((e) => ({ error: e.name === 'TimeoutError' ? 'Pi-hole didn\u2019t answer' : e.message })),
   ]);
+  sources.pihole = pi.skipped ? 'not set up' : pi.error || 'ok';
   sources.mdns = mdns.error || 'ok';
   sources.dns = rdns.error || 'ok';
   sources.ha = ha.skipped ? 'not set up' : ha.error || 'ok';
@@ -318,19 +379,23 @@ async function scan(opts) {
 
   const hosts = live.map((ip) => {
     const mac = arp[ip] || (self && ip === self.ip ? self.mac : '');
-    const dnsName = rdns.names[ip] || '';
+    const pe = (pi.byIp && pi.byIp[ip]) || (mac && pi.byMac && pi.byMac[mac]) || null;
+    const dnsNames = [...new Set([rdns.names[ip], ...((pe && pe.records) || []), ...((pe && pe.names) || []), pe && pe.lease].filter(Boolean))];
+    const dnsName = dnsNames[0] || '';
+    const short = (n) => n && n.split('.')[0];
     const md = mdnsFacts(mdns.byIp[ip]), w = web[ip] || {};
     const hd = (mac && haByMac[mac]) || haByHost[ip] || (dnsName && haByHost[dnsName.toLowerCase()])
       || (md.mdnsHost && haByHost[md.mdnsHost.toLowerCase()]) || null;
     if (hd) used.add(hd.id);
     const trk = trkByIp[ip] || (mac && trkByMac[mac]) || null;
     const isSelf = !!(self && ip === self.ip);
-    const maker = makerOf(mac, makers);
+    const maker = makerOf(mac, makers) || (pe && pe.vendor) || '';
     const isHa = (md.kinds || []).includes('Home Assistant');
     const name = (isSelf && os.hostname()) || [hd && hd.name, w.name].find(usable) || (isHa && 'Home Assistant')
-      || [md.name, trk && trk.name].find(usable) || (dnsName && dnsName.split('.')[0]) || md.host || [trk && trk.host].find(usable) || '';
+      || [md.name, trk && trk.name, pe && pe.lease, ...dnsNames.map(short)].find(usable) || md.host || [trk && trk.host].find(usable) || '';
     const desc = [];
     if (isSelf) desc.push('This server (Lickety Split)');
+    if (pe && pe.comment) desc.push(pe.comment);
     if (w.kind) desc.push(w.kind + (w.version ? ' ' + w.version : '') + (w.extra ? ', ' + w.extra : ''));
     if (hd && (hd.maker || hd.model)) {
       const mm = [hd.maker, hd.model].filter(Boolean).join(' ');
@@ -338,16 +403,20 @@ async function scan(opts) {
     } else if (md.model) desc.push(md.model);
     const kinds = md.kinds ? md.kinds.filter((k) => !(w.kind && (k === 'WLED' || k === 'Web page')) && k !== 'SSH') : [];
     if (kinds.length) desc.push(kinds.join(', '));
-    if (maker && maker !== 'private address' && !desc.some((d) => d.toLowerCase().includes(maker.toLowerCase().split(/[ ,]/)[0]))) desc.push('Made by ' + maker);
+    if (maker && maker !== 'private address' && !desc.some((d) => d.toLowerCase().includes(maker.toLowerCase().split(/[ ,]/)[0]))) desc.push('Made by ' + brandOf(maker));
     if (w.title && w.title !== name && desc.length < 2) desc.push('Web page: ' + w.title);
     else if (!w.title && w.server && desc.length < 2) desc.push('Web server: ' + w.server);
     if (maker === 'private address' && !desc.length) desc.push('Phone, tablet or computer (private Wi-Fi address)');
     const upd = updateWay({ w, md, hd, maker, isHa, ups: (hd && updByDev[hd.id]) || (isHa ? haSelfUpd : []) });
     const matter = !!(md.matter || md.thread || (hd && (hd.doms || []).some((x) => x === 'matter' || x === 'thread')));
+    const brand = brandOf((hd && hd.maker) || maker);
+    const home = !isSelf && !isHa && (HOME_BRAND.test(brand) || (md.kinds || []).some((k) => HOME_KINDS.includes(k))
+      || !!(hd && (hd.doms || []).some((x) => HOME_DOMAINS.includes(x))));
     return {
-      key: mac || ip, ip, mac, name, dns: dnsName, mdns: md.mdnsHost || '', area: (hd && hd.area) || '', maker,
+      key: mac || ip, ip, mac, name, dns: dnsName, dnsAll: dnsNames, mdns: md.mdnsHost || '', area: (hd && hd.area) || '', maker, brand,
       desc: desc.join(' · '), inHa: !!hd, fw: w.fw || '', version: w.version || '', web: answer[ip] === 'open',
-      matter, thread: !!md.thread, update: upd, group: groupOf(w.fw, matter, upd, isHa),
+      matter, thread: !!md.thread, update: upd, group: groupOf(w.fw, matter, upd, isHa, home),
+      queries: (pe && pe.queries) || 0, lastQuery: (pe && pe.lastQuery) || 0,
     };
   });
 
@@ -360,7 +429,7 @@ async function scan(opts) {
     hosts.push({
       key: hd ? 'ha:' + hd.id : 'matter:' + n.key, ip: n.ipv4 || '', ipv6: n.ipv6, mac: '', dns: '', mdns: n.host,
       name: (hd && hd.name) || n.txt.dn || (n.op ? 'Matter device' : 'Matter device waiting to be set up'),
-      area: (hd && hd.area) || '', maker: '', inHa: !!hd, fw: '', version: (hd && hd.sw) || '', web: false, matter: true, thread: !n.ipv4,
+      area: (hd && hd.area) || '', maker: '', brand: brandOf(hd && hd.maker), inHa: !!hd, fw: '', version: (hd && hd.sw) || '', web: false, matter: true, thread: !n.ipv4,
       desc: [hd && [hd.maker, hd.model].filter(Boolean).join(' '), n.op ? '' : 'not set up yet' + (vp[0] ? ` (vendor ${vp[0]}, product ${vp[1] || '?'})` : ''),
         n.ipv4 ? 'Matter over Wi-Fi' : 'Matter over Thread'].filter(Boolean).join(' · '),
       update: hd ? updateWay({ w: {}, md: {}, hd, maker: '', ups: updByDev[hd.id] || [] }) : null, group: 'matter',
@@ -370,15 +439,18 @@ async function scan(opts) {
   for (const d of ha.devices) {
     if (used.has(d.id) || /service/i.test(d.type || '') || (d.doms || []).includes('hassio')) continue;
     const isMatter = (d.doms || []).some((x) => x === 'matter' || x === 'thread');
+    const isEsp = (d.doms || []).includes('esphome');
     const ups = (updByDev[d.id] || []).filter((u) => !/^update\.home_assistant_/.test(u.eid));
-    if (!isMatter && !ups.length) continue;
+    if (!isMatter && !isEsp && !ups.length) continue;
     used.add(d.id);
-    const via = isMatter ? 'Matter' : ({ zha: 'Zigbee', zwave_js: 'Z-Wave', hue: 'Hue bridge', deconz: 'Zigbee', mqtt: 'MQTT' })[(d.doms || [])[0]] || (d.doms || [])[0] || '';
+    const via = isEsp ? '' : isMatter ? 'Matter' : ({ zha: 'Zigbee', zwave_js: 'Z-Wave', hue: 'Hue bridge', deconz: 'Zigbee', mqtt: 'MQTT' })[(d.doms || [])[0]] || (d.doms || [])[0] || '';
     hosts.push({
       key: 'ha:' + d.id, ip: '', mac: '', dns: '', mdns: '', name: d.name || 'Home Assistant device', area: d.area || '', maker: '',
       inHa: true, fw: '', version: d.sw || '', web: false, matter: isMatter, thread: false,
-      desc: [[d.maker, d.model].filter(Boolean).join(' '), via && 'via ' + via + ' (no address of its own)'].filter(Boolean).join(' · '),
-      update: updateWay({ w: {}, md: {}, hd: d, maker: '', ups }), group: groupOf('', isMatter, ups.length ? { by: 'ha' } : null),
+      desc: [isEsp ? 'ESPHome' + (d.sw ? ' ' + d.sw : '') : '', [d.maker, d.model].filter((x) => x && !/^esphome$/i.test(x)).join(' '),
+        isEsp ? 'not answering on the network now (asleep, off, or off the Wi-Fi?)' : via && 'via ' + via + ' (no address of its own)'].filter(Boolean).join(' · '),
+      brand: brandOf(d.maker), update: updateWay({ w: {}, md: isEsp ? { esphome: d.sw || '?' } : {}, hd: d, maker: '', ups }),
+      group: isMatter ? 'matter' : isEsp ? 'updatable' : 'home', away: isEsp,
     });
   }
   return { at: Date.now(), took: Date.now() - t0, subnet: range.cidr, sources, hosts };
@@ -417,10 +489,27 @@ function updateWay({ w, md, hd, maker, isHa, ups }) {
   for (const [re, how] of APP_WAY) if (re.test(mk)) return { by: 'app', how, installed: (hd && hd.sw) || '' };
   return null;
 }
-function groupOf(fw, matter, upd, isHa) {
+// home automation: plugs, switches, thermostats, sensors, cameras… (grouped by maker on the page)
+const HOME_BRAND = /^(TP-Link|Belkin|Wemo|ecobee|Ring|Orbit|Midea|Signify|Philips|Lutron|Wyze|Tuya|Shelly|Sonoff|ITEAD|Meross|Govee|LIFX|Nanoleaf|Chamberlain|SimpliSafe|Arlo|Eufy|August|Yale|Rachio|Sense|Emporia|iRobot|Roborock|Ecovacs|Leviton|Jasco|Aqara|Lumi|Broadlink|SwitchBot|Mysa|Nest|Honeywell|Resideo|Sensibo|Rinnai|Hunter Douglas|Lockly|Kwikset|Schlage|MyQ|Konnected|Ezviz|Reolink|Amcrest|Hubitat|SmartThings|Insteon|Z-Wave|Zooz|Inovelli|Third Reality|Wiz)\b/i;
+const HOME_KINDS = ['HomeKit', 'Shelly', 'Philips Hue'];
+const HOME_DOMAINS = ['tplink', 'tplink_omada', 'wemo', 'ecobee', 'ring', 'hue', 'lutron_caseta', 'shelly', 'tuya', 'meross', 'govee', 'lifx',
+  'nanoleaf', 'myq', 'rachio', 'roborock', 'wiz', 'switchbot', 'homekit_controller', 'kasa', 'midea_ac', 'august', 'yale', 'nest', 'mysa', 'bhyve'];
+function brandOf(m) {
+  m = String(m || '').trim();
+  if (!m || m === 'private address') return '';
+  if (/^tp-?link/i.test(m)) return 'TP-Link';
+  if (/^belkin/i.test(m)) return 'Belkin (Wemo)';
+  if (/midea/i.test(m)) return 'Midea';
+  if (/^(signify|philips lighting)/i.test(m)) return 'Philips Hue';
+  if (/^orbit/i.test(m)) return 'Orbit B-hyve';
+  if (/^ring\b/i.test(m)) return 'Ring';
+  return m.replace(/[\s,，]*(Technologies|Technology|Systems|International|Electronics|Corporate|Corporation|Inc\b|Co\.?,?\s*Ltd|Co\.|Ltd|LLC|GmbH|Limited)\b.*$/i, '').trim() || m;
+}
+function groupOf(fw, matter, upd, isHa, home) {
   if (fw) return 'licketysplit';
   if (isHa) return 'updatable';
   if (matter) return 'matter';
+  if (home) return 'home';
   if (upd && upd.by !== 'app') return 'updatable';
   return 'other';
 }

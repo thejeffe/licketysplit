@@ -67,6 +67,13 @@ label{display:grid;gap:4px;font-size:13px;color:var(--muted);min-width:0}
  .title h1{font-size:30px}
 }
 
+/* tabs */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--rule)}
+.tabs button{border:0;border-bottom:3px solid transparent;border-radius:8px 8px 0 0;background:none;padding:8px 14px;font:italic 700 19px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tabs .n{font:500 12px var(--body);color:var(--muted)}
+.sub-h{font:600 12px var(--body);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:10px 2px 2px}
+
 /* the network list */
 .boxhead{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .boxhead h2{margin:0}
@@ -86,7 +93,7 @@ label{display:grid;gap:4px;font-size:13px;color:var(--muted);min-width:0}
 .badge{display:inline-block;font:600 10.5px/1 var(--body);letter-spacing:.04em;text-transform:uppercase;padding:3px 6px;border-radius:99px;border:1px solid var(--rule);color:var(--muted);margin-left:6px;vertical-align:2px}
 .badge.matter{border-color:#7b61ff;color:#7b61ff}.badge.ok{border-color:var(--ok);color:var(--ok)}.badge.new{border-color:var(--accent);color:var(--accent)}
 .chk{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:14px}
-.chk input{width:auto}
+.chk input,input[type=checkbox]{-webkit-appearance:checkbox;appearance:auto;width:20px;height:20px;padding:0;margin:0;flex:none;accent-color:var(--accent);cursor:pointer}
 .two{display:grid;gap:8px;grid-template-columns:1fr 1fr}
 dialog h3{margin:6px 0 0;font:italic 700 18px/1.1 var(--display);text-transform:uppercase;letter-spacing:.02em}
 @media (max-width:640px){.nd{grid-template-columns:minmax(0,1fr)}.nd .addr{text-align:left}.two{grid-template-columns:1fr}}

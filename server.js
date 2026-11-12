@@ -48,6 +48,8 @@ const DEFAULT_NET = {
   dns: '',              // '' = the system's DNS server
   haUrl: 'http://homeassistant.local:8123',
   haToken: '',          // Home Assistant long-lived access token (never sent back to the page)
+  piholeUrl: '',        // e.g. https://pi.hole (Pi-hole v6): host names, local DNS records, query counts
+  piholePassword: '',   // its web password or an app password (never sent back to the page)
 };
 const DEFAULT_CONF = {
   owner: '',
@@ -245,15 +247,17 @@ try { netResult = JSON.parse(fs.readFileSync(NET_FILE, 'utf8')); } catch (e) { /
 function publicNet() {
   const n = conf.net;
   return { enabled: n.enabled, subnet: n.subnet, dns: n.dns, haUrl: n.haUrl, haTokenSet: !!n.haToken,
+    piholeUrl: n.piholeUrl, piholePasswordSet: !!n.piholePassword,
     autoSubnet: (netscan.localNets()[0] || {}).cidr || '' };
 }
 function scanNetwork() {
   if (netRun) return netRun;
-  netRun = netscan.scan({ subnet: conf.net.subnet, dns: conf.net.dns, haUrl: conf.net.haUrl, haToken: conf.net.haToken, dataDir: CFG.dataDir })
+  netRun = netscan.scan({ subnet: conf.net.subnet, dns: conf.net.dns, haUrl: conf.net.haUrl, haToken: conf.net.haToken,
+    piholeUrl: conf.net.piholeUrl, piholePassword: conf.net.piholePassword, dataDir: CFG.dataDir })
     .then((r) => {
       netResult = netscan.merge(netResult, r); netError = null;
       fs.writeFileSync(NET_FILE + '.tmp', JSON.stringify(netResult)); fs.renameSync(NET_FILE + '.tmp', NET_FILE);
-      log(`Network check: ${r.hosts.length} devices in ${Math.round(r.took / 1000)} s (HA ${r.sources.ha}, mDNS ${r.sources.mdns}, DNS ${r.sources.dns})`);
+      log(`Network check: ${r.hosts.length} devices in ${Math.round(r.took / 1000)} s (HA ${r.sources.ha}, Pi-hole ${r.sources.pihole}, mDNS ${r.sources.mdns}, DNS ${r.sources.dns})`);
       return netResult;
     })
     .catch((e) => { netError = e.message; log('Network check failed: ' + e.message); throw e; })
@@ -278,6 +282,12 @@ function cleanNet(b) {
     n.haUrl = v;
   }
   if (typeof b.haToken === 'string' && b.haToken.trim()) n.haToken = b.haToken.trim().slice(0, 600);
+  if ('piholeUrl' in b) {
+    const v = String(b.piholeUrl || '').trim().replace(/\/+$/, '').replace(/\/admin$/, '');
+    if (v && !/^https?:\/\/[^\s/]+(:\d+)?$/.test(v)) throw new Error('Pi-hole\u2019s address should look like https://pi.hole');
+    n.piholeUrl = v;
+  }
+  if (typeof b.piholePassword === 'string' && b.piholePassword) n.piholePassword = b.piholePassword.slice(0, 200);
   if (b.haTokenClear) n.haToken = '';
   return n;
 }
