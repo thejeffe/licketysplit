@@ -518,7 +518,7 @@ const server = http.createServer(async (req, res) => {
       await monitor.tick();
       return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() }));
     }
-    if (p === '/api/status/check' && req.method === 'POST') { await monitor.tick(); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }
+    if (p === '/api/status/check' && req.method === 'POST') { await monitor.tick(true); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }
     if (p === '/api/status/test-email' && req.method === 'POST') { await monitor.sendTest(); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }
     if (p === '/api/status/send-report' && req.method === 'POST') { await monitor.sendReport(); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }
     if (p === '/api/network/names' && req.method === 'POST') {       // rename / remove / allow again one Pi-hole name

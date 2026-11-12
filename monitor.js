@@ -227,9 +227,15 @@ function createMonitor(deps) {
 
   function check(name, ok, detail) { st.checks[name] = { at: Date.now(), ok, detail: detail || '' }; }
 
-  async function gather() {
+  async function gather(force) {
     const c = cfg(), net = deps.net(), now = Date.now(), found = [];
     const add = (id, sev, cat, title, detail, since, grace) => found.push({ id, sev, cat, title, detail: detail || '', since: since || 0, grace: grace == null ? GRACE : grace });
+
+    // Pi-hole first (every 5 minutes, or now when asked): its own answer on updates beats Home Assistant's
+    if (net.piholeUrl && net.piholePassword && (force || now - pihole.at >= PIHOLE_EVERY - 5000)) {
+      try { pihole = { at: now, res: await piholeCheck(net.piholeUrl, net.piholePassword), err: null }; }
+      catch (e) { pihole = { at: now, res: pihole.res && Object.assign({}, pihole.res, { dnsOk: pihole.res.dnsOk }), err: e.message }; }
+    }
 
     // Home Assistant
     if (net.haUrl && net.haToken) {
@@ -250,18 +256,15 @@ function createMonitor(deps) {
         }
         for (const d of h.dead) add('dead:' + d.id, 'notice', 'Devices', `${d.name} unavailable`, [d.area, 'all its entities unavailable'].filter(Boolean).join(' · '), d.since * 1000, 0);
         for (const b of h.batt) if (b.v < 0 || b.v <= c.battery) add('batt:' + b.id, 'notice', 'Batteries', `${b.name}: ${b.v < 0 ? 'low' : Math.round(b.v) + '%'}`, '', 0, 0);
-        for (const u of h.upd) add('upd:' + u.id, 'notice', 'Updates', `Update: ${u.name}`, [u.inst, u.latest].filter(Boolean).join(' → '), 0, 0);
+        const piFresh = () => pihole.res && !pihole.err && Date.now() - pihole.at < 15 * 60000;
+        for (const u of h.upd) if (!(/pi-?hole/i.test(u.name + ' ' + u.id) && piFresh())) add('upd:' + u.id, 'notice', 'Updates', `Update: ${u.name}`, [u.inst, u.latest].filter(Boolean).join(' → '), 0, 0);
       } catch (e) {
         check('Home Assistant', false, e.message);
         add('ha', 'alert', 'Home Assistant', 'Home Assistant isn’t answering', e.name === 'TimeoutError' ? 'no answer' : e.message);
       }
     }
 
-    // Pi-hole (every 5 minutes)
-    if (net.piholeUrl && net.piholePassword && now - pihole.at >= PIHOLE_EVERY - 5000) {
-      try { pihole = { at: now, res: await piholeCheck(net.piholeUrl, net.piholePassword), err: null }; }
-      catch (e) { pihole = { at: now, res: pihole.res && Object.assign({}, pihole.res, { dnsOk: pihole.res.dnsOk }), err: e.message }; }
-    }
+    // Pi-hole results
     if (net.piholeUrl && (pihole.res || pihole.err)) {
       const p = pihole.res || {};
       if (pihole.err && !p.dnsOk) add('pihole', 'alert', 'Pi-hole', 'Pi-hole isn’t answering', pihole.err);
@@ -403,11 +406,11 @@ function createMonitor(deps) {
     return Date.now() >= slot && st.lastWeekly < slot;
   }
 
-  async function tick() {
+  async function tick(force) {
     if (running) return;
     running = true;
     try {
-      const found = await gather();
+      const found = await gather(force);
       update(found);
       st.at = Date.now();
       const c = cfg(), al = confirmed(), now = Date.now();
