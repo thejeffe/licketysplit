@@ -213,11 +213,11 @@ const HA_TEMPLATE = `{%- set ns = namespace(seen=[], devs=[], trk=[], upd=[]) -%
 {%- if x[0] == 'matter' and (x[1] | string).startswith('deviceid_') -%}{%- set c.mids = c.mids + [(x[1] | string)[9:] | upper] -%}{%- endif -%}{%- endfor -%}
 {%- set ns.devs = ns.devs + [{'id': d, 'name': device_attr(d, 'name_by_user') or device_attr(d, 'name'), 'maker': device_attr(d, 'manufacturer'), 'model': device_attr(d, 'model'), 'sw': device_attr(d, 'sw_version'), 'area': area_name(d), 'macs': c.macs, 'doms': c.doms, 'mids': c.mids, 'url': device_attr(d, 'configuration_url'), 'type': device_attr(d, 'entry_type') | string}] -%}
 {%- endif -%}{%- endfor -%}
-{%- for s in states.device_tracker -%}{%- if s.attributes.ip or s.attributes.mac -%}
-{%- set ns.trk = ns.trk + [{'name': s.name, 'ip': s.attributes.ip, 'mac': (s.attributes.mac or '') | lower, 'host': s.attributes.host_name}] -%}
+{%- for s in states.device_tracker -%}{%- if s.attributes.get('ip') or s.attributes.get('mac') -%}
+{%- set ns.trk = ns.trk + [{'name': s.name, 'ip': s.attributes.get('ip'), 'mac': (s.attributes.get('mac') or '') | lower, 'host': s.attributes.get('host_name')}] -%}
 {%- endif -%}{%- endfor -%}
 {%- for s in states.update -%}
-{%- set ns.upd = ns.upd + [{'dev': device_id(s.entity_id), 'eid': s.entity_id, 'title': s.attributes.title or s.name, 'inst': s.attributes.installed_version, 'latest': s.attributes.latest_version, 'on': s.state == 'on'}] -%}
+{%- set ns.upd = ns.upd + [{'dev': device_id(s.entity_id), 'eid': s.entity_id, 'title': s.attributes.get('title') or s.name, 'inst': s.attributes.get('installed_version'), 'latest': s.attributes.get('latest_version'), 'on': s.state == 'on'}] -%}
 {%- endfor -%}
 {{ {'devices': ns.devs, 'trackers': ns.trk, 'updates': ns.upd} | to_json }}`;
 async function haDevices(url, token) {
