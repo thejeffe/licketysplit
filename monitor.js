@@ -98,7 +98,8 @@ try { duckGif = fs.readFileSync(require('path').join(__dirname, 'public', 'duck.
 const HA_TEMPLATE = `{%- set ns = namespace(doors=[], garage=[], autos=[], batt=[], upd=[], dead=[], seen=[]) -%}
 {%- for s in states.binary_sensor -%}{%- set dc = s.attributes.get('device_class') -%}
 {%- if dc in ['door', 'garage_door'] and s.state == 'on' -%}
-{%- set ns.doors = ns.doors + [{'id': s.entity_id, 'name': s.name, 'cls': dc, 'since': as_timestamp(s.last_changed, 0)}] -%}{%- endif -%}
+{%- set dv = device_id(s.entity_id) -%}{%- set locks = (device_entities(dv) if dv else []) | select('match', 'lock\\.') | list -%}
+{%- set ns.doors = ns.doors + [{'id': s.entity_id, 'name': s.name, 'cls': dc, 'since': as_timestamp(s.last_changed, 0), 'locked': locks | select('is_state', 'locked') | list | length > 0}] -%}{%- endif -%}
 {%- if dc == 'battery' and s.state == 'on' -%}{%- set ns.batt = ns.batt + [{'id': s.entity_id, 'name': s.name, 'v': -1}] -%}{%- endif -%}
 {%- endfor -%}
 {%- for s in states.cover -%}{%- if (s.attributes.get('device_class') in ['garage', 'gate'] or 'garage' in s.entity_id) and s.state in ['open', 'opening'] -%}
@@ -199,6 +200,7 @@ function createMonitor(deps) {
         const h = await haCheck(net.haUrl, net.haToken);
         check('Home Assistant', true, `${h.doors.length} open · ${h.autos.length} automations broken · ${h.upd.length} updates`);
         for (const d of h.doors) {
+          if (d.locked) continue;      // a lock's own door sensor while the lock is locked: the door is shut (the sensor is wrong)
           const since = d.since * 1000, lim = (d.cls === 'garage_door' ? c.garageMin : c.doorMin) * 60000;
           if (now - since >= lim) add('door:' + d.id, 'alert', 'Doors', `${d.name} open for ${mins(now - since)}`, d.cls.replace('_', ' '), since, 0);
         }
