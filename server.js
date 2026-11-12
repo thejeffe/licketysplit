@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const netscan = require('./netscan');
+const monitorLib = require('./monitor');
 
 const CFG = {
   port: +(process.env.PORT || 8110),
@@ -59,6 +60,7 @@ const DEFAULT_PING = { url: '', every: 60 };   // health ping (e.g. a healthchec
 const DEFAULT_CONF = {
   owner: '',
   ping: DEFAULT_PING,
+  monitor: monitorLib.DEFAULTS,     // Duck Hunting: home checks and email
   devices: [],          // added on the page; saved in DATA_DIR/config.json
   net: DEFAULT_NET,
 };
@@ -67,6 +69,7 @@ function loadConf() {
   try { conf = Object.assign({}, DEFAULT_CONF, JSON.parse(fs.readFileSync(CONF_FILE, 'utf8'))); } catch (e) { conf = JSON.parse(JSON.stringify(DEFAULT_CONF)); }
   conf.net = Object.assign({}, DEFAULT_NET, conf.net || {});
   conf.ping = Object.assign({}, DEFAULT_PING, conf.ping || {});
+  conf.monitor = Object.assign({}, monitorLib.DEFAULTS, conf.monitor || {});
 }
 function saveConf() {
   fs.mkdirSync(CFG.dataDir, { recursive: true });
@@ -384,7 +387,7 @@ function pingSummary() {
     if (h >= 0 && h < 24) hours[h][x.ok ? 'ok' : 'fail']++;
   }
   return { ok: pingLog.filter((x) => x.ok).length, fail: pingLog.filter((x) => !x.ok).length, hours,
-    recent: pingLog.slice(-30).reverse(), failures: pingLog.filter((x) => !x.ok).slice(-30).reverse() };
+    log: pingLog };
 }
 async function pingNow() {
   const u = conf.ping.url;
@@ -421,6 +424,41 @@ function cleanPing(b) {
   return p;
 }
 
+// ---------- Duck Hunting (monitor.js) ----------
+const monitor = monitorLib.createMonitor({
+  cfg: () => conf.monitor, net: () => conf.net, devices: () => conf.devices, probe, dataDir: CFG.dataDir, log,
+  netResult: () => netResult, pingSummary: () => (conf.ping.url ? Object.assign(publicPing(), pingSummary()) : null),
+});
+function publicMonitor() {
+  const m = conf.monitor;
+  return { enabled: m.enabled, to: m.to, from: m.from, passwordSet: !!m.password, doorMin: m.doorMin, garageMin: m.garageMin,
+    battery: m.battery, diskGb: m.diskGb, weeklyDay: m.weeklyDay, weeklyHour: m.weeklyHour, notifyNew: m.notifyNew, notifyClear: m.notifyClear,
+    watch: m.watch };
+}
+function cleanMonitor(b) {
+  const m = Object.assign({}, conf.monitor);
+  const email = (v) => { v = String(v || '').trim(); if (v && !/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(v)) throw new Error(`${v} doesn\u2019t look like an email address`); return v; };
+  if ('enabled' in b) m.enabled = !!b.enabled;
+  if ('to' in b) m.to = String(b.to || '').split(/[,;\s]+/).filter(Boolean).map(email).join(', ');
+  if ('from' in b) m.from = email(b.from);
+  if (typeof b.password === 'string' && b.password.trim()) m.password = b.password.replace(/\s+/g, '').slice(0, 100);   // app passwords are shown with spaces
+  const num = (k, lo, hi) => { if (k in b) { const v = Math.round(+b[k]); if (!(v >= lo && v <= hi)) throw new Error(`${k} should be ${lo}\u2013${hi}`); m[k] = v; } };
+  num('doorMin', 1, 1440); num('garageMin', 1, 1440); num('battery', 1, 90); num('weeklyDay', -1, 6); num('weeklyHour', 0, 23);
+  if ('diskGb' in b) { const v = Math.round(+b.diskGb * 10) / 10; if (!(v >= 0 && v <= 500)) throw new Error('diskGb should be 0\u2013500'); m.diskGb = v; }
+  if ('notifyNew' in b) m.notifyNew = !!b.notifyNew;
+  if ('notifyClear' in b) m.notifyClear = !!b.notifyClear;
+  if ('watch' in b) {
+    m.watch = String(b.watch || '').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+      const mm = /^(.+?)\s*=\s*(https?:\/\/\S+)$/.exec(l);
+      if (!mm) throw new Error(`Watch list: "${l}" should look like  Signinator = http://host:8080/`);
+      return { name: mm[1].slice(0, 60), url: mm[2] };
+    }).slice(0, 30);
+  }
+  return m;
+}
+setTimeout(() => monitor.tick(), 30000);
+setInterval(() => monitor.tick(), 60000);
+
 // ---------- HTTP ----------
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.bin': 'application/octet-stream' };
 function send(res, code, body, type, extra) {
@@ -447,7 +485,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x'), p = url.pathname;
   try {
     if (p === '/api/state' && req.method === 'GET') {
-      return send(res, 200, { owner: conf.owner, firmware: catalog(), devices: conf.devices, ota: otaRuns, refreshing: !!refreshing, lastRefresh: lastRefresh.at, tokenSet: !!CFG.token, net: publicNet(), ping: publicPing() });
+      return send(res, 200, { owner: conf.owner, firmware: catalog(), devices: conf.devices, ota: otaRuns, refreshing: !!refreshing, lastRefresh: lastRefresh.at, tokenSet: !!CFG.token, net: publicNet(), ping: publicPing(), monitor: publicMonitor() });
     }
     if (p === '/api/settings' && req.method === 'PUT') {
       const b = await readBody(req);
@@ -460,15 +498,20 @@ const server = http.createServer(async (req, res) => {
       if (b.net && typeof b.net === 'object') conf.net = cleanNet(b.net);
       const hadPing = conf.ping.url;
       if (b.ping && typeof b.ping === 'object') conf.ping = cleanPing(b.ping);
+      if (b.monitor && typeof b.monitor === 'object') conf.monitor = cleanMonitor(b.monitor);
       if (conf.ping.url && conf.ping.url !== hadPing) { pingLast = null; setTimeout(pingTick, 100); }
       saveConf();
       if (conf.net.enabled && !wasOn) netTick();
-      return send(res, 200, { owner: conf.owner, net: publicNet(), ping: publicPing() });
+      return send(res, 200, { owner: conf.owner, net: publicNet(), ping: publicPing(), monitor: publicMonitor() });
     }
     if (p === '/api/network' && req.method === 'GET') {
       return send(res, 200, { settings: publicNet(), scanning: !!netRun, error: netError, result: netResult, names: dnsNames(),
         ping: conf.ping.url ? Object.assign(publicPing(), pingSummary()) : null });
     }
+    if (p === '/api/status' && req.method === 'GET') return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() }));
+    if (p === '/api/status/check' && req.method === 'POST') { await monitor.tick(); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }
+    if (p === '/api/status/test-email' && req.method === 'POST') { await monitor.sendTest(); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }
+    if (p === '/api/status/send-report' && req.method === 'POST') { await monitor.sendReport(); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }
     if (p === '/api/network/names' && req.method === 'POST') {       // rename / remove / allow again one Pi-hole name
       const b = await readBody(req), mac = String(b.mac || '').toLowerCase();
       if (!/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/.test(mac)) throw new Error('Which device?');

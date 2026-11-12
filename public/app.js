@@ -224,9 +224,19 @@ function renderPing() {
   }).join('');
   const last = p.last ? ` · last ${ago(p.last.at)}${p.last.ok ? '' : ' <span class="off">failed (' + esc(p.last.status) + ')</span>'}` : '';
   $('pingSum').innerHTML = `<span>Health ping (${esc(p.host)}): ${p.ok.toLocaleString()} of ${(p.ok + p.fail).toLocaleString()} OK in the last 24 h${last}</span><span class="strip">${cells}</span><span>log ▾</span>`;
-  const row = (x) => `<div${x.ok ? '' : ' class="bad"'}>${tm(x.t)} ${x.ok ? 'OK' : 'failed: ' + esc(x.s || '')}</div>`;
-  $('pingLog').innerHTML = (p.failures.length ? `<div class="log">${p.failures.map(row).join('')}</div>` : '')
-    + `<div class="log">${p.recent.map(row).join('') || 'No pings yet.'}</div>`;
+  // the log, short: failures on their own line; OKs grouped by 10 minutes for the last hour, then by the hour
+  const hm = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const lines = [];
+  let grp = null;
+  const flush = () => { if (grp) lines.push(`<div>${hm(grp.from)}\u2013${hm(grp.to)} · ${grp.n} OK</div>`); grp = null; };
+  for (const x of p.log || []) {
+    if (!x.ok) { flush(); lines.push(`<div class="bad">${tm(x.t)} failed: ${esc(x.s || '')}</div>`); continue; }
+    const size = Date.now() - x.t < 3600000 ? 600000 : 3600000, slot = Math.floor(x.t / size) * size;
+    if (!grp || grp.slot !== slot) { flush(); grp = { slot, from: slot, to: slot + size, n: 0 }; }
+    grp.n++;
+  }
+  flush();
+  $('pingLog').innerHTML = `<div class="log">${lines.reverse().join('') || 'No pings yet.'}</div>`;
 }
 
 function renderNet() {
@@ -278,6 +288,61 @@ $('netList').addEventListener('click', async (ev) => {
   catch (e) { say($('msg'), e.message, 'err'); b.disabled = false; }
 });
 
+// ---------- status: the Duck Hunting report ----------
+// the sidekick: Lickety Split's duck superhero (Duck Hunting), flying while everything is working
+const HERO = `<svg class="hero" viewBox="0 0 220 110" role="img" aria-label="Lickety Split's duck sidekick flying: everything is working">
+  <defs><linearGradient id="dk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe17a"/><stop offset="1" stop-color="#f2a900"/></linearGradient>
+  <linearGradient id="dc" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff4a3d"/><stop offset="1" stop-color="#b3121f"/></linearGradient></defs>
+  <g class="streaks" stroke="#f2b33d" stroke-width="3" stroke-linecap="round">
+    <line x1="14" y1="44" x2="42" y2="44"/><line x1="4" y1="60" x2="36" y2="60"/><line x1="18" y1="74" x2="46" y2="74"/><line x1="30" y1="32" x2="50" y2="32"/></g>
+  <g class="flyer">
+    <path class="cape" d="M146 44 C124 30 98 26 62 34 C74 42 70 50 58 56 C74 60 74 68 64 78 C94 72 122 64 146 54 Z" fill="url(#dc)" stroke="#7a0d16" stroke-width="1.3" stroke-linejoin="round"/>
+    <path d="M92 74 l-10 6 l4 -9 M100 76 l-9 8 l3 -10" fill="#ff8a1f" stroke="#b85a00" stroke-width="1.2" stroke-linejoin="round"/>
+    <path d="M86 52 L72 44 L78 58 Z" fill="url(#dk)" stroke="#a86f00" stroke-width="1.2" stroke-linejoin="round"/>
+    <ellipse cx="116" cy="58" rx="34" ry="20" fill="url(#dk)" stroke="#a86f00" stroke-width="1.3"/>
+    <path d="M122 50 L112 62 H119 L115 72 L128 58 H121 Z" fill="#ff4a3d" stroke="#7a0d16" stroke-width=".9" stroke-linejoin="round"/>
+    <path class="wing" d="M104 50 C96 30 110 20 128 26 C122 34 120 42 116 52 Z" fill="#ffd34d" stroke="#a86f00" stroke-width="1.3" stroke-linejoin="round"/>
+    <circle cx="156" cy="40" r="16" fill="url(#dk)" stroke="#a86f00" stroke-width="1.3"/>
+    <path d="M152 24 C154 18 160 18 160 24 C163 20 167 22 165 27" fill="none" stroke="#a86f00" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M168 40 C176 36 188 37 194 41 C188 46 176 47 168 45 Z" fill="#ff8a1f" stroke="#b85a00" stroke-width="1.2" stroke-linejoin="round"/>
+    <path d="M168 42.5 C176 42 186 42 192 41.5" stroke="#b85a00" stroke-width="1" fill="none"/>
+    <path d="M142 33 C150 30 164 30 172 33 L171 40 C163 37 151 37 143 40 Z" fill="#d42a2a" stroke="#7a0d16" stroke-width="1"/>
+    <ellipse cx="162" cy="35.5" rx="3.6" ry="3" fill="#fff"/><circle cx="163" cy="35.6" r="1.6" fill="#1b2836"/>
+  </g>
+  <g class="spark"><path d="M204 30 L207 37 L214 40 L207 43 L204 50 L201 43 L194 40 L201 37 Z" fill="#ffe17a" stroke="#f2a900" stroke-width="1"/></g>
+</svg>`;
+let ST = null;
+function renderStatus() {
+  if (!ST) return;
+  const al = ST.alerts || [], nt = ST.notices || [], since = (t) => t ? new Date(t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+  $('statusCount').textContent = al.length ? String(al.length) : '';
+  $('statusCount').className = 'n' + (al.length ? ' off' : '');
+  $('stNote').textContent = (ST.at ? `Checked ${ago(ST.at)} (every minute).` : 'The first check runs a minute after Lickety Split starts.')
+    + (ST.settings.enabled ? ` Emails go to ${ST.settings.to || '(no address set)'}.` : ' Email is off: turn it on in ⚙ Settings.');
+  const row = (a, cls) => `<div class="row ${cls}"><div><b>${esc(a.title)}</b><small>${esc([a.cat, a.detail, a.first && cls === 'al' ? 'since ' + since(a.first) : ''].filter(Boolean).join(' · '))}</small></div></div>`;
+  const byCat = {};
+  for (const n of nt) (byCat[n.cat] = byCat[n.cat] || []).push(n);
+  const checks = Object.entries(ST.checks || {}).sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([k, c]) => `<div title="${esc(c.detail)}"><span class="dot${c.ok ? '' : ' bad'}"></span>${esc(k)} <small>${esc(c.detail)}</small></div>`).join('');
+  $('stBody').innerHTML = `${al.length ? `<div class="big bad">${al.length} thing${al.length > 1 ? 's' : ''} need${al.length > 1 ? '' : 's'} attention</div>` : `<div class="allgood">${HERO}<div><div class="big good">All good</div><div class="note" style="margin:0">Everything is working. The duck is on patrol.</div></div></div>`}
+    ${al.length ? `<div class="list st-sec">${al.map((a) => row(a, 'al')).join('')}</div>` : ''}
+    ${(ST.pending || []).length ? `<p class="note">Watching: ${ST.pending.map((a) => esc(a.title)).join(', ')} (counts if it lasts 3 minutes)</p>` : ''}
+    ${nt.length ? `<div class="st-sec"><h3>Worth knowing</h3><div class="list">${Object.entries(byCat).map(([c, l]) => l.map((a) => row(a, 'nt')).join('')).join('')}</div></div>` : ''}
+    <div class="st-sec"><h3>Checks</h3><div class="checks">${checks || '<span class="muted">No checks yet.</span>'}</div></div>
+    ${(ST.history || []).length ? `<div class="st-sec"><h3>Fixed recently</h3><ul class="mails">${ST.history.slice(0, 8).map((h) => `<li>${esc(h.title)} <span class="muted">· ${since(h.from)} \u2013 ${since(h.to)}</span></li>`).join('')}</ul></div>` : ''}
+    <div class="st-sec"><h3>Emails</h3><ul class="mails">${(ST.emails || []).slice(0, 8).map((m) => `<li>${since(m.at)} · ${esc(m.subject)}${m.ok ? '' : ` <span class="off">failed: ${esc(m.error)}</span>`}</li>`).join('') || '<li class="muted">None sent yet.</li>'}</ul>
+    <div class="acts-r" style="justify-content:flex-start;margin-top:8px"><button type="button" class="small" id="stTest">Send a test email</button><button type="button" class="small" id="stSend">Email this report now</button></div></div>`;
+}
+async function loadStatus() { try { ST = await api('GET', 'api/status'); renderStatus(); } catch (e) { $('stNote').textContent = 'Couldn\u2019t load the status: ' + e.message; } }
+$('stCheck').addEventListener('click', async () => { $('stCheck').disabled = true; try { ST = await api('POST', 'api/status/check'); renderStatus(); } catch (e) { say($('msg'), e.message, 'err'); } $('stCheck').disabled = false; });
+$('stBody').addEventListener('click', async (ev) => {
+  const b = ev.target.closest('button'); if (!b || !['stTest', 'stSend'].includes(b.id)) return;
+  b.disabled = true;
+  try { ST = await api('POST', b.id === 'stTest' ? 'api/status/test-email' : 'api/status/send-report'); renderStatus(); say($('msg'), 'Email sent.', 'ok'); }
+  catch (e) { say($('msg'), 'Email failed: ' + e.message, 'err'); b.disabled = false; }
+});
+setInterval(() => { if (!document.hidden) loadStatus(); }, 60000);
+
 // ---------- tabs (remembered per browser) ----------
 function showTab(t) {
   for (const b of document.querySelectorAll('.tabs [data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === t));
@@ -285,7 +350,7 @@ function showTab(t) {
   try { localStorage.setItem('ls-tab', t); } catch (e) { /* private mode */ }
 }
 document.querySelector('.tabs').addEventListener('click', (ev) => { const b = ev.target.closest('[data-tab]'); if (b) showTab(b.dataset.tab); });
-try { const t = location.hash === '#network' ? 'net' : location.hash === '#firmware' ? 'fw' : localStorage.getItem('ls-tab'); if (t === 'net') showTab('net'); } catch (e) { /* private mode */ }
+try { const t = location.hash === '#network' ? 'net' : location.hash === '#firmware' ? 'fw' : location.hash === '#status' ? 'status' : localStorage.getItem('ls-tab'); if (t === 'net' || t === 'fw') showTab(t); else showTab('status'); } catch (e) { showTab('status'); }
 
 // ---------- reload (the home-screen app has no browser reload button) ----------
 $('reloadBtn').addEventListener('click', () => { $('reloadBtn').disabled = true; location.reload(); });
@@ -302,6 +367,14 @@ $('setBtn').addEventListener('click', () => {
   $('nPiUrl').value = n.piholeUrl || ''; $('nPiPw').value = ''; $('nPiNames').checked = !!n.piholeNames; $('nPiSuffix').value = n.piholeSuffix || 'lan';
   $('nPiPw').placeholder = n.piholePasswordSet ? 'Set (leave blank to keep it)' : 'Pi-hole\u2019s password';
   $('nHaNote').textContent = n.haTokenSet ? 'A Home Assistant token is set. It stays on this server and is never shown again.' : 'Without a token the list still works, but has no Home Assistant names, rooms or update versions.';
+  const mo = S.monitor || {};
+  if (!$('mHour').options.length) $('mHour').innerHTML = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${new Date(2000, 0, 1, h).toLocaleTimeString(undefined, { hour: 'numeric' })}</option>`).join('');
+  $('mOn').checked = !!mo.enabled; $('mTo').value = mo.to || ''; $('mFrom').value = mo.from || ''; $('mPw').value = '';
+  $('mPw').placeholder = mo.passwordSet ? 'Set (leave blank to keep it)' : '16 letters from Google';
+  $('mNew').checked = mo.notifyNew !== false; $('mClear').checked = mo.notifyClear !== false;
+  $('mDay').value = String(mo.weeklyDay ?? 1); $('mHour').value = String(mo.weeklyHour ?? 8);
+  $('mDoor').value = mo.doorMin ?? 15; $('mGarage').value = mo.garageMin ?? 30; $('mBatt').value = mo.battery ?? 15; $('mDisk').value = mo.diskGb ?? 1;
+  $('mWatch').value = (mo.watch || []).map((w) => `${w.name} = ${w.url}`).join('\n');
   const pg = S.ping || {};
   $('pUrl').value = ''; $('pUrl').placeholder = pg.set ? `Set: ${pg.host} (leave blank to keep it)` : 'https://hc-ping.com/your-check-id';
   $('pEvery').value = String(pg.every || 60); $('pClear').checked = false; $('pClear').closest('label').hidden = !pg.set;
@@ -314,13 +387,15 @@ $('setForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   try {
     await api('PUT', 'api/settings', { owner: $('sOwner').value, net: { enabled: $('nOn').checked, subnet: $('nSubnet').value, dns: $('nDns').value, haUrl: $('nHaUrl').value, haToken: $('nHaToken').value, piholeUrl: $('nPiUrl').value, piholePassword: $('nPiPw').value, piholeNames: $('nPiNames').checked, piholeSuffix: $('nPiSuffix').value || 'lan' },
-      ping: { url: $('pUrl').value, every: +$('pEvery').value, clear: $('pClear').checked } });
-    $('setDlg').close(); say($('msg'), 'Saved.', 'ok'); await load(); loadNet();
+      ping: { url: $('pUrl').value, every: +$('pEvery').value, clear: $('pClear').checked },
+      monitor: { enabled: $('mOn').checked, to: $('mTo').value, from: $('mFrom').value, password: $('mPw').value, notifyNew: $('mNew').checked, notifyClear: $('mClear').checked,
+        weeklyDay: +$('mDay').value, weeklyHour: +$('mHour').value, doorMin: +$('mDoor').value, garageMin: +$('mGarage').value, battery: +$('mBatt').value, diskGb: +$('mDisk').value, watch: $('mWatch').value } });
+    $('setDlg').close(); say($('msg'), 'Saved.', 'ok'); await load(); loadNet(); loadStatus();
   }
   catch (e) { say($('sMsg'), e.message, 'err'); }
 });
 
-load().then(() => { probeAll(); loadNet(); if (Object.values(S.ota).some((r) => r.state === 'sending')) watchOta(); })
+load().then(() => { probeAll(); loadNet(); loadStatus(); if (Object.values(S.ota).some((r) => r.state === 'sending')) watchOta(); })
   .catch((e) => say($('msg'), 'Couldn’t load: ' + e.message, 'err'));
 // keep the ping line and the list fresh while the page is open
 setInterval(() => { if (!document.hidden && NET && !NET.scanning) loadNet(); }, 60000);

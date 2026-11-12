@@ -74,6 +74,39 @@ label{display:grid;gap:4px;font-size:13px;color:var(--muted);min-width:0}
 .tabs .n{font:500 12px var(--body);color:var(--muted)}
 .sub-h{font:600 12px var(--body);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:10px 2px 2px}
 
+/* status report */
+.four{display:grid;gap:8px;grid-template-columns:repeat(4,1fr)}
+textarea{font:13px var(--mono);width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--rule);background:var(--bg);color:var(--ink);resize:vertical}
+.big{font:italic 800 26px/1.1 var(--display);text-transform:uppercase;letter-spacing:.02em;margin:4px 0 2px}
+.big.good{color:var(--ok)}.big.bad{color:var(--err)}
+.st-sec{margin-top:14px}
+.st-sec h3{margin:0 0 6px;font:600 12px var(--body);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.al{border-left:4px solid var(--err)}.nt{border-left:4px solid var(--accent)}
+.al b{color:var(--err)}
+.checks{display:grid;gap:4px 14px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));font-size:13px}
+.checks div{display:flex;gap:6px;align-items:baseline;min-width:0}
+.checks small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--ok);transform:translateY(-1px)}.dot.bad{background:var(--err)}
+.mails{font-size:13px;list-style:none;padding:0;margin:0}.mails li{padding:2px 0}.mails .off{color:var(--err)}
+@media (max-width:640px){.four{grid-template-columns:1fr 1fr}}
+
+/* all good: the hero flies */
+.allgood{display:flex;align-items:center;gap:6px 14px;flex-wrap:wrap;margin:2px 0}
+.hero{width:190px;height:96px;flex:none;overflow:visible}
+.hero .flyer{animation:hero-bob 2.6s ease-in-out infinite}
+.hero .wing{transform-origin:112px 50px;transform-box:view-box;animation:hero-wing .38s ease-in-out infinite alternate}
+.hero .cape{transform-origin:146px 49px;transform-box:view-box;animation:hero-cape .45s ease-in-out infinite alternate}
+.hero .streaks line{animation:hero-zoom 1s linear infinite}
+.hero .streaks line:nth-child(2){animation-delay:-.35s}.hero .streaks line:nth-child(3){animation-delay:-.7s}.hero .streaks line:nth-child(4){animation-delay:-.2s}
+.hero .spark{transform-origin:204px 40px;transform-box:view-box;animation:hero-spark 1.3s ease-in-out infinite}
+@keyframes hero-bob{0%,100%{transform:translate(0,0) rotate(-2deg)}50%{transform:translate(4px,-6px) rotate(1deg)}}
+@keyframes hero-wing{from{transform:rotate(8deg)}to{transform:rotate(-28deg)}}
+@keyframes hero-cape{from{transform:skewY(4deg) scaleX(1)}to{transform:skewY(-5deg) scaleX(.92)}}
+@keyframes hero-zoom{from{transform:translateX(30px);opacity:0}20%{opacity:.9}to{transform:translateX(-40px);opacity:0}}
+@keyframes hero-spark{0%,100%{transform:scale(.6);opacity:.5}50%{transform:scale(1.15);opacity:1}}
+@media (prefers-reduced-motion:reduce){.hero *{animation:none!important}}
+.checks div{white-space:nowrap}
+
 /* health ping line */
 .ping{font-size:12.5px;color:var(--muted);margin:-4px 0 10px}
 .ping > summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap}

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lickety Split</title>
-<meta name="description" content="Flash and update the ESP32 devices: Matrixinator, AirPlay receiver, WLED.">
+<meta name="description" content="Watches the house, maps the network and keeps the firmware fresh: home checks with email alerts, every device on the network, ESP32 flashing and updates.">
 <meta name="theme-color" content="#0D141B">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Lickety Split">
@@ -22,15 +22,22 @@
  <header class="top">
   <div class="brand">
    <img src="icon.svg" alt="" width="52" height="52">
-   <div class="title"><h1>Lickety Split</h1><span>Flash and update the ESP32 devices</span></div>
+   <div class="title"><h1>Lickety Split</h1><span>Watches the house, maps the network, keeps the firmware fresh</span></div>
   </div>
   <div class="topacts"><button type="button" id="refresh">Check for new builds</button><button type="button" id="reloadBtn" aria-label="Reload" title="Reload the page (for the home-screen app)">↻</button><button type="button" id="setBtn" aria-label="Settings" title="Settings">⚙</button></div>
  </header>
  <p class="msg" id="msg" role="status"></p>
  <nav class="tabs" role="tablist">
+  <button type="button" role="tab" data-tab="status" aria-selected="false">Status <span class="n" id="statusCount"></span></button>
   <button type="button" role="tab" data-tab="fw" aria-selected="true">Firmware</button>
   <button type="button" role="tab" data-tab="net" aria-selected="false">Network <span class="n" id="netCount"></span></button>
  </nav>
+
+ <section class="box" id="statusBox" data-pane="status" hidden>
+  <div class="boxhead"><h2 id="stHead">Status</h2><button type="button" class="small" id="stCheck">Check now</button></div>
+  <p class="note" id="stNote"></p>
+  <div id="stBody"></div>
+ </section>
 
  <section class="box" data-pane="fw">
   <h2>Your devices</h2>
@@ -82,6 +89,30 @@
   <label class="chk"><input id="nPiNames" type="checkbox">Give devices without a DNS name a name in Pi-hole</label>
   <label>Name ending<input id="nPiSuffix" type="text" autocapitalize="off" spellcheck="false" placeholder="lan, or home.example.com" style="max-width:320px"></label>
   <p class="note">Names come from Home Assistant, the device itself or its announcements, like <i>kitchen-plug.lan</i>. Each name stays with its device (by MAC address) when its address changes, and an address reused by another device loses the old name at once. Lickety Split only changes names it made; ones you remove stay removed.</p>
+  <h3>Duck Hunting (email when something's wrong)</h3>
+  <label class="chk"><input id="mOn" type="checkbox">Email me when something goes wrong</label>
+  <div class="two">
+   <label>Send to (one or more addresses)<input id="mTo" type="text" autocapitalize="off" spellcheck="false" placeholder="you@example.com"></label>
+   <label>Send from (a Gmail address)<input id="mFrom" type="text" autocapitalize="off" spellcheck="false" placeholder="you@gmail.com"></label>
+  </div>
+  <label>Gmail app password (Google Account → Security → 2-Step Verification → App passwords)<input id="mPw" type="password" autocomplete="off" spellcheck="false"></label>
+  <div class="two">
+   <label class="chk"><input id="mNew" type="checkbox">When something new goes wrong</label>
+   <label class="chk"><input id="mClear" type="checkbox">All clear when it's fixed</label>
+  </div>
+  <div class="two">
+   <label>Weekly summary<select id="mDay"><option value="-1">off</option><option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></select></label>
+   <label>at<select id="mHour"></select></label>
+  </div>
+  <div class="four">
+   <label>Door open (min)<input id="mDoor" type="number" min="1" max="1440" inputmode="numeric"></label>
+   <label>Garage open (min)<input id="mGarage" type="number" min="1" max="1440" inputmode="numeric"></label>
+   <label>Battery low (%)<input id="mBatt" type="number" min="1" max="90" inputmode="numeric"></label>
+   <label>Disk low (GB)<input id="mDisk" type="number" min="0" max="500" step="0.5" inputmode="decimal"></label>
+  </div>
+  <label>Also watch these web addresses (one per line: Name = address)<textarea id="mWatch" rows="3" spellcheck="false" placeholder="Signinator = http://localhost:8080/"></textarea></label>
+  <p class="note">Your devices on the Firmware tab, Home Assistant and Pi-hole are always checked. Something counts as wrong after 3 minutes (doors and the garage after the times above).</p>
+
   <h3>Health ping</h3>
   <div class="two">
    <label>Ping this address (e.g. healthchecks.io)<input id="pUrl" type="password" autocomplete="off" spellcheck="false"></label>
