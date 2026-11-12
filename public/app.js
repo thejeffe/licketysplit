@@ -153,7 +153,10 @@ function netRow(h) {
   }
   const nm = (h.mac && NET.names && NET.names[h.mac]) || {};
   const names = [...new Set([...(h.dnsAll || [h.dns]), h.mdns])].filter((x) => x && x !== nm.dns);
-  const dnsLine = nm.dns ? `<div class="upd"><b>DNS name:</b> <span class="mono">${esc(nm.dns)}</span></div>`
+  const skipped = h.mac && (NET.settings.piholeSkipped || []).includes(h.mac);
+  const nb = (act, label, title) => `<button type="button" class="small link" data-name="${act}" data-mac="${esc(h.mac)}" data-host="${esc(nm.dns || nm.suggest || nameOf(h))}"${title ? ` title="${esc(title)}"` : ''}>${label}</button>`;
+  const dnsLine = nm.dns ? `<div class="upd"><b>DNS name:</b> <span class="mono">${esc(nm.dns)}</span>${nm.ours ? ' ' + nb('rename', 'Rename') + nb('remove', 'Remove', 'Remove the name from Pi-hole and don\u2019t name this device again') : ''}</div>`
+    : skipped ? `<div class="upd"><b>DNS name:</b> <span class="muted">none (you removed it)</span> ${nb('allow', 'Name it again')}</div>`
     : nm.suggest ? `<div class="upd"><b>Suggested name:</b> <span class="mono">${esc(nm.suggest)}</span> <span class="muted">(not in Pi-hole${NET.settings.piholeNames ? ' yet: added at the next check' : ''})</span></div>` : '';
   const q = h.queries ? `${h.queries.toLocaleString()} DNS queries${h.lastQuery ? ', last ' + ago(h.lastQuery) : ''}` : '';
   const addr = [h.ip || h.ipv6, ...names, h.mac, q].filter(Boolean).map(esc).join('<br>');
@@ -185,28 +188,30 @@ function renderDns() {
       <div><h4>Most blocked</h4><ul class="tl">${d.topBlocked.slice(0, 5).map((c) => row(c, true)).join('') || '<li>Nothing blocked.</li>'}</ul></div></div>
       ${d.topBlockedDomains.length ? `<p class="note" style="margin:6px 0 0"><b>Top blocked:</b> ${d.topBlockedDomains.slice(0, 5).map((x) => `${esc(x.domain)} (${k(x.count)})`).join(', ')}</p>` : ''}</div>`;
   }
-  const m = st.piholeManaged || [], sk = st.piholeSkipped || [];
-  if (st.piholeNames || m.length || sk.length) {
-    const sync = r && r.piSync;
-    const dev = (mac) => ((r && r.hosts) || []).find((h) => h.mac === mac);
-    html += `<details class="dns" ${m.length < 12 ? 'open' : ''}><summary><h3 style="display:inline">Names in Pi-hole</h3> <span class="c">${m.length}</span></summary>
-      <p class="note">${st.piholeNames ? 'Kept up to date after every check.' : 'Naming is off in ⚙ Settings: these names are removed at the next check.'}${sync ? ` Last change ${ago(sync.at)}: ${sync.added.length} added, ${sync.removed.length} removed.` : ''}${sync && sync.error ? ' ' + esc(sync.error) : ''}</p>
-      <ul class="tl names">${m.map((e) => { const h = dev(e.mac); return `<li><span><b>${esc(e.host)}</b> → ${esc(e.ip)}<small>${esc(h ? nameOf(h) : e.device || '')} · ${esc(e.mac)}${h && !h.online ? ' · away' : ''}</small></span>
-        <button type="button" class="small" data-name="rename" data-mac="${esc(e.mac)}" data-host="${esc(e.host)}">Rename</button><button type="button" class="small" data-name="remove" data-mac="${esc(e.mac)}" title="Remove this name and don't name the device again">Remove</button></li>`; }).join('') || '<li>No names yet: they\u2019re made at the next check.</li>'}</ul>
-      ${sk.length ? `<h4 style="margin-top:8px">Not named (removed by you)</h4><ul class="tl names">${sk.map((mac) => { const h = dev(mac); return `<li><span>${esc(h ? nameOf(h) : mac)}<small>${esc(mac)}</small></span><span></span><button type="button" class="small" data-name="allow" data-mac="${esc(mac)}">Name it again</button></li>`; }).join('')}</ul>` : ''}</details>`;
+  const m = st.piholeManaged || [], sync = r && r.piSync;
+  if (st.piholeNames || m.length) {
+    const line = (st.piholeNames ? `<b>Pi-hole names:</b> ${m.length} kept up to date (shown on each device)` : `<b>Pi-hole names:</b> naming is off, so the ${m.length} names are removed at the next check`)
+      + (sync && (sync.added.length || sync.removed.length) ? ` · last change ${ago(sync.at)}: ${sync.added.length} added, ${sync.removed.length} removed` : '')
+      + (sync && sync.error ? ` · <span class="off">${esc(sync.error)}</span>` : '');
+    html = html ? html.replace(/<\/div>$/, `<p class="note" style="margin:6px 0 0">${line}</p></div>`) : `<p class="note">${line}</p>`;
   }
   $('dnsBox').innerHTML = html;
 }
-$('dnsBox').addEventListener('click', async (ev) => {
+async function nameAction(ev) {
   const b = ev.target.closest('button[data-name]'); if (!b) return;
   const body = { action: b.dataset.name, mac: b.dataset.mac };
   if (body.action === 'rename') {
-    const v = prompt('New name for this device in Pi-hole:', b.dataset.host); if (!v) return; body.host = v;
-  } else if (body.action === 'remove' && !confirm(`Remove ${b.closest('li').querySelector('b').textContent} from Pi-hole? Lickety Split won't name this device again (unless you choose "Name it again").`)) return;
+    const v = prompt('New name for this device in Pi-hole (the ending is added if you leave it off):', b.dataset.host); if (!v) return; body.host = v;
+  } else if (body.action === 'remove' && !confirm(`Remove ${b.dataset.host} from Pi-hole? Lickety Split won't name this device again (until you press "Name it again").`)) return;
   b.disabled = true;
-  try { const j = await api('POST', 'api/network/names', body); NET.settings = j.settings; NET.names = j.names; if (j.sync && NET.result) NET.result.piSync = j.sync; S.net = j.settings; renderDns(); if (j.sync && j.sync.error) say($('msg'), j.sync.error, 'err'); }
-  catch (e) { say($('msg'), e.message, 'err'); b.disabled = false; }
-});
+  try {
+    const j = await api('POST', 'api/network/names', body);
+    NET.settings = j.settings; NET.names = j.names; S.net = j.settings;
+    if (j.sync && NET.result) NET.result.piSync = j.sync;
+    renderNet(); if (j.sync && j.sync.error) say($('msg'), j.sync.error, 'err');
+  } catch (e) { say($('msg'), e.message, 'err'); b.disabled = false; }
+}
+$('dnsBox').addEventListener('click', nameAction);
 
 function renderNet() {
   if (!NET) return;
@@ -248,6 +253,7 @@ $('netScan').addEventListener('click', async () => {
   try { NET = await api('POST', 'api/network/scan'); } catch (e) { NET.scanning = false; NET.error = e.message; }
   renderNet();
 });
+$('netList').addEventListener('click', nameAction);
 $('netList').addEventListener('click', async (ev) => {
   const b = ev.target.closest('button[data-add]'); if (!b) return;
   const h = NET.result.hosts.find((x) => x.key === b.dataset.add); if (!h) return;
