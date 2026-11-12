@@ -286,13 +286,19 @@ $('setBtn').addEventListener('click', () => {
   $('nPiUrl').value = n.piholeUrl || ''; $('nPiPw').value = ''; $('nPiNames').checked = !!n.piholeNames; $('nPiSuffix').value = n.piholeSuffix || 'lan';
   $('nPiPw').placeholder = n.piholePasswordSet ? 'Set (leave blank to keep it)' : 'Pi-hole\u2019s password';
   $('nHaNote').textContent = n.haTokenSet ? 'A Home Assistant token is set. It stays on this server and is never shown again.' : 'Without a token the list still works, but has no Home Assistant names, rooms or update versions.';
+  const pg = S.ping || {};
+  $('pUrl').value = ''; $('pUrl').placeholder = pg.set ? `Set: ${pg.host} (leave blank to keep it)` : 'https://hc-ping.com/your-check-id';
+  $('pEvery').value = String(pg.every || 60); $('pClear').checked = false; $('pClear').closest('label').hidden = !pg.set;
+  $('pNote').textContent = !pg.set ? 'Lickety Split calls this address on a schedule, so a monitor can tell you if this server stops.'
+    : pg.last ? `Last ping ${ago(pg.last.at)}: ${pg.last.ok ? 'OK' : 'failed'} (${pg.last.status}).` : 'No ping sent yet.';
   say($('sMsg'), ''); $('setDlg').showModal();
 });
 $('sCancel').addEventListener('click', () => $('setDlg').close());
 $('setForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   try {
-    await api('PUT', 'api/settings', { owner: $('sOwner').value, net: { enabled: $('nOn').checked, subnet: $('nSubnet').value, dns: $('nDns').value, haUrl: $('nHaUrl').value, haToken: $('nHaToken').value, piholeUrl: $('nPiUrl').value, piholePassword: $('nPiPw').value, piholeNames: $('nPiNames').checked, piholeSuffix: $('nPiSuffix').value || 'lan' } });
+    await api('PUT', 'api/settings', { owner: $('sOwner').value, net: { enabled: $('nOn').checked, subnet: $('nSubnet').value, dns: $('nDns').value, haUrl: $('nHaUrl').value, haToken: $('nHaToken').value, piholeUrl: $('nPiUrl').value, piholePassword: $('nPiPw').value, piholeNames: $('nPiNames').checked, piholeSuffix: $('nPiSuffix').value || 'lan' },
+      ping: { url: $('pUrl').value, every: +$('pEvery').value, clear: $('pClear').checked } });
     $('setDlg').close(); say($('msg'), 'Saved.', 'ok'); await load(); loadNet();
   }
   catch (e) { say($('sMsg'), e.message, 'err'); }

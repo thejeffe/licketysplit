@@ -55,8 +55,10 @@ const DEFAULT_NET = {
   piholeManaged: [],    // records Lickety Split made, by device: { mac, ip, host, seen, device }. The only ones it changes.
   piholeOverrides: {},  // per MAC: { host: 'my-name.lan' } (renamed on the page) or { skip: true } (removed: don't name it)
 };
+const DEFAULT_PING = { url: '', every: 60 };   // health ping (e.g. a healthchecks.io URL), seconds between pings
 const DEFAULT_CONF = {
   owner: '',
+  ping: DEFAULT_PING,
   devices: [],          // added on the page; saved in DATA_DIR/config.json
   net: DEFAULT_NET,
 };
@@ -64,6 +66,7 @@ let conf;
 function loadConf() {
   try { conf = Object.assign({}, DEFAULT_CONF, JSON.parse(fs.readFileSync(CONF_FILE, 'utf8'))); } catch (e) { conf = JSON.parse(JSON.stringify(DEFAULT_CONF)); }
   conf.net = Object.assign({}, DEFAULT_NET, conf.net || {});
+  conf.ping = Object.assign({}, DEFAULT_PING, conf.ping || {});
 }
 function saveConf() {
   fs.mkdirSync(CFG.dataDir, { recursive: true });
@@ -360,6 +363,42 @@ async function syncNames(r, why) {
   }
 }
 
+// ---------- health ping: "I'm alive" to a monitoring URL (healthchecks.io and similar) ----------
+let pingLast = null;      // { at, ok, status }
+let pingBusy = false;
+async function pingNow() {
+  const u = conf.ping.url;
+  if (!u || pingBusy) return;
+  pingBusy = true;
+  try {
+    const r = await fetch(u, { headers: { 'User-Agent': 'licketysplit' }, signal: AbortSignal.timeout(10000) });
+    pingLast = { at: Date.now(), ok: r.ok, status: 'HTTP ' + r.status };
+    if (!r.ok) log(`Health ping: HTTP ${r.status}`);
+  } catch (e) {
+    pingLast = { at: Date.now(), ok: false, status: e.name === 'TimeoutError' ? 'no answer' : String((e.cause && e.cause.code) || e.message) };
+    log('Health ping failed: ' + pingLast.status);
+  } finally { pingBusy = false; }
+}
+function pingTick() {
+  if (conf.ping.url && (!pingLast || Date.now() - pingLast.at >= conf.ping.every * 1000 - 2000)) pingNow();
+}
+function publicPing() {
+  let host = '';
+  try { host = conf.ping.url ? new URL(conf.ping.url).host : ''; } catch (e) { /* bad url */ }
+  return { set: !!conf.ping.url, host, every: conf.ping.every, last: pingLast };
+}
+function cleanPing(b) {
+  const p = Object.assign({}, conf.ping);
+  if (typeof b.url === 'string' && b.url.trim()) {
+    const v = b.url.trim();
+    if (!/^https?:\/\/[^\s]+$/.test(v) || v.length > 500) throw new Error('The health ping should be a web address, like https://hc-ping.com/…');
+    p.url = v;
+  }
+  if (b.clear) p.url = '';
+  if ('every' in b) p.every = [60, 300, 900, 3600].includes(+b.every) ? +b.every : 60;
+  return p;
+}
+
 // ---------- HTTP ----------
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.bin': 'application/octet-stream' };
 function send(res, code, body, type, extra) {
@@ -386,7 +425,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x'), p = url.pathname;
   try {
     if (p === '/api/state' && req.method === 'GET') {
-      return send(res, 200, { owner: conf.owner, firmware: catalog(), devices: conf.devices, ota: otaRuns, refreshing: !!refreshing, lastRefresh: lastRefresh.at, tokenSet: !!CFG.token, net: publicNet() });
+      return send(res, 200, { owner: conf.owner, firmware: catalog(), devices: conf.devices, ota: otaRuns, refreshing: !!refreshing, lastRefresh: lastRefresh.at, tokenSet: !!CFG.token, net: publicNet(), ping: publicPing() });
     }
     if (p === '/api/settings' && req.method === 'PUT') {
       const b = await readBody(req);
@@ -397,9 +436,12 @@ const server = http.createServer(async (req, res) => {
       }
       const wasOn = conf.net.enabled;
       if (b.net && typeof b.net === 'object') conf.net = cleanNet(b.net);
+      const hadPing = conf.ping.url;
+      if (b.ping && typeof b.ping === 'object') conf.ping = cleanPing(b.ping);
+      if (conf.ping.url && conf.ping.url !== hadPing) { pingLast = null; setTimeout(pingTick, 100); }
       saveConf();
       if (conf.net.enabled && !wasOn) netTick();
-      return send(res, 200, { owner: conf.owner, net: publicNet() });
+      return send(res, 200, { owner: conf.owner, net: publicNet(), ping: publicPing() });
     }
     if (p === '/api/network' && req.method === 'GET') {
       return send(res, 200, { settings: publicNet(), scanning: !!netRun, error: netError, result: netResult, names: dnsNames() });
@@ -476,4 +518,6 @@ setTimeout(() => refreshAll(), 5000);
 setInterval(() => refreshAll(), 6 * 3600 * 1000);
 setTimeout(netTick, 20000);
 setInterval(netTick, 60000);
+setTimeout(pingTick, 5000);
+setInterval(pingTick, 10000);
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => process.exit(0));

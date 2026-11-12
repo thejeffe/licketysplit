@@ -81,6 +81,13 @@
   <label class="chk"><input id="nPiNames" type="checkbox">Give devices without a DNS name a name in Pi-hole</label>
   <label>Name ending<input id="nPiSuffix" type="text" autocapitalize="off" spellcheck="false" placeholder="lan, or home.example.com" style="max-width:320px"></label>
   <p class="note">Names come from Home Assistant, the device itself or its announcements, like <i>kitchen-plug.lan</i>. Each name stays with its device (by MAC address) when its address changes, and an address reused by another device loses the old name at once. Lickety Split only changes names it made; ones you remove stay removed.</p>
+  <h3>Health ping</h3>
+  <div class="two">
+   <label>Ping this address (e.g. healthchecks.io)<input id="pUrl" type="password" autocomplete="off" spellcheck="false"></label>
+   <label>Every<select id="pEvery"><option value="60">minute</option><option value="300">5 minutes</option><option value="900">15 minutes</option><option value="3600">hour</option></select></label>
+  </div>
+  <label class="chk"><input id="pClear" type="checkbox">Stop pinging (forget the address)</label>
+  <p class="note" id="pNote"></p>
   <div class="acts"><span class="msg" id="sMsg" role="status"></span><button type="button" id="sCancel">Cancel</button><button type="submit" class="pri">Save</button></div>
  </form>
 </dialog>
