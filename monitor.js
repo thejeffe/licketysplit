@@ -177,6 +177,43 @@ function diskFree(p) {
 
 const mins = (ms) => { const m = Math.round(ms / 60000); return m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.round(m / 1440)} days`; };
 
+// ---------- how to fix it ----------
+// one or two sentences of advice for each kind of problem and update
+function adviceFor(f, devices) {
+  const id = f.id, t = f.title;
+  if (id.startsWith('door:')) return 'Close the door. If it is shut, the sensor is wrong: check its magnet or recalibrate it in the lock’s app, or press Ignore.';
+  if (id.startsWith('garage:')) return 'Close it from Home Assistant (or the wall button). If it is shut, check the garage tilt/position sensor and its battery.';
+  if (id.startsWith('auto:')) return 'Home Assistant → Settings → Automations: open it and look for the red error (usually an entity that was renamed or removed). Also check Settings → Repairs, then reload automations.';
+  if (id === 'ha') return 'Check the Home Assistant machine is on and on the network (open its page). If the page doesn’t load, restart it; if it loads slowly, check Settings → System → Repairs and the disk space.';
+  if (id === 'pihole') return 'Open the Pi-hole page. If it is down, run "sudo systemctl restart pihole-FTL" on the Pi (or restart its container).';
+  if (id === 'piholeblk') return 'Pi-hole → Settings → turn blocking back on, or run "pihole enable" on the Pi. Someone (or a timer) switched it off.';
+  if (id === 'piholegrav') return 'Pi-hole → Tools → Update Gravity, or "pihole -g" on the Pi.';
+  if (id === 'piholeapi') return 'DNS works; restart the web part with "sudo systemctl restart pihole-FTL" on the Pi.';
+  if (id === 'disk' || id === 'disklow') return 'On this server: "sudo apt clean", "sudo journalctl --vacuum-size=200M", and remove old backups. "sudo du -xh / | sort -h | tail" shows what is big.';
+  if (id === 'ping') return 'Usually the internet connection: check the eero app. If the internet works, check that this server can reach the ping address.';
+  if (id.startsWith('dev:')) {
+    const d = (devices || []).find((x) => 'dev:' + x.id === id), fw = d && d.fw;
+    const base = 'Check it has power and Wi-Fi (its page at ' + (d ? d.host : 'its address') + '). Unplug it for 10 seconds, or press Restart on the Firmware tab if its page still answers.';
+    if (fw === 'airplay') return base + ' The AirPlay receiver also drops off when its Wi-Fi is weak.';
+    if (fw && fw.startsWith('wled')) return base + ' If it keeps dropping, reflash it from the Firmware tab.';
+    return base;
+  }
+  if (id.startsWith('web:')) {
+    const u = id.slice(4);
+    const svc = /:8080\b/.test(u) ? 'signinator' : /:8100\b/.test(u) ? 'tree-show' : /:8110\b/.test(u) ? 'licketysplit' : '';
+    return svc ? `On this server: "sudo systemctl restart ${svc}", then "journalctl -u ${svc} -n 50" if it stops again.` : 'Open the address in a browser; restart the service or device behind it.';
+  }
+  if (id.startsWith('upd:') || id.startsWith('piholeupd:')) {
+    if (/pi-?hole/i.test(t)) return 'On the Pi: "sudo pihole -up" (all parts at once; DNS pauses for a moment). In Docker: pull the new image and recreate the container.';
+    if (/home assistant (core|operating system|supervisor)/i.test(t)) return 'Home Assistant → Settings → System → Updates → Install (it offers a backup first: take it).';
+    if (/esphome/i.test(t)) return 'ESPHome dashboard (Home Assistant add-on) → the device → Install → Wirelessly.';
+    if (/^0x/i.test(f.detail)) return 'A Matter/Thread device: Home Assistant → Settings → System → Updates → Install. Thread updates are slow (20–60 min); leave it near a border router.';
+    if (/wled/i.test(t)) return 'Use Lickety Split’s Firmware tab, not Home Assistant: HA would install plain WLED without the temporal dithering.';
+    return 'Home Assistant → Settings → System → Updates → Install.';
+  }
+  return '';
+}
+
 // ---------- the monitor ----------
 function createMonitor(deps) {
   // deps: { cfg() -> monitor settings, net() -> conf.net, devices() -> conf.devices, probe(dev), dataDir, log,
@@ -209,7 +246,7 @@ function createMonitor(deps) {
           if (now - since >= c.garageMin * 60000) add('garage:' + g.id, 'alert', 'Doors', `${g.name} open for ${mins(now - since)}`, 'garage', since, 0);
         }
         for (const a of h.autos) {
-          add('auto:' + a.id, 'alert', 'Automations', `Automation broken: ${a.name}`, 'unavailable (check its configuration or Settings → Repairs)', a.since * 1000);
+          add('auto:' + a.id, 'alert', 'Automations', `Automation broken: ${a.name}`, 'unavailable', a.since * 1000);
         }
         for (const d of h.dead) add('dead:' + d.id, 'notice', 'Devices', `${d.name} unavailable`, [d.area, 'all its entities unavailable'].filter(Boolean).join(' · '), d.since * 1000, 0);
         for (const b of h.batt) if (b.v < 0 || b.v <= c.battery) add('batt:' + b.id, 'notice', 'Batteries', `${b.name}: ${b.v < 0 ? 'low' : Math.round(b.v) + '%'}`, '', 0, 0);
@@ -281,7 +318,7 @@ function createMonitor(deps) {
       seen.add(f.id);
       st.titles[f.id] = f.title.replace(/ open for .*$/, '').replace(/ isn\u2019t answering$/, '');
       const a = st.active[f.id];
-      st.active[f.id] = Object.assign({}, f, { first: a ? a.first : now, mailed: a ? a.mailed : false });
+      st.active[f.id] = Object.assign({}, f, { first: a ? a.first : now, mailed: a ? a.mailed : false, fix: adviceFor(f, deps.devices()) });
     }
     for (const id of Object.keys(st.active)) {
       if (seen.has(id)) continue;
@@ -306,19 +343,20 @@ function createMonitor(deps) {
     const sec = (title, items, fmt) => items.length ? { title, items: items.map(fmt) } : null;
     const parts = [
       kind === 'clear' ? { title: 'All clear', items: ['Everything is working again.'] } : null,
-      sec('What’s wrong', r.alerts, (a) => `${a.title}${a.detail ? ' — ' + a.detail : ''} (since ${when(a.first)})`),
-      sec('Updates to install', r.notices, (a) => `${a.title}${a.detail ? ' — ' + a.detail : ''}`),
+      sec('What’s wrong', r.alerts, (a) => ({ line: `${a.title}${a.detail ? ' — ' + a.detail : ''} (since ${when(a.first)})`, fix: a.fix })),
+      sec('Updates to install', r.notices, (a) => ({ line: `${a.title}${a.detail ? ' — ' + a.detail : ''}`, fix: a.fix })),
       kind !== 'alert' ? sec('Fixed recently', r.history.filter((h) => now() - h.to < 7 * 86400000).slice(0, 15), (h) => `${h.title} (${when(h.from)} – ${when(h.to)})`) : null,
       ...(extra || []),
     ].filter(Boolean);
     function now() { return Date.now(); }
-    const text = parts.map((p) => `${p.title.toUpperCase()}\n${p.items.map((i) => '  - ' + i).join('\n')}`).join('\n\n') + '\n\n— Lickety Split (Duck Hunting)\n';
+    const line = (i) => (typeof i === 'string' ? i : i.line), fix = (i) => (typeof i === 'string' ? '' : i.fix || '');
+    const text = parts.map((p) => `${p.title.toUpperCase()}\n${p.items.map((i) => '  - ' + line(i) + (fix(i) ? '\n    How to fix: ' + fix(i) : '')).join('\n')}`).join('\n\n') + '\n\n— Lickety Split (Duck Hunting)\n';
     const n = r.alerts.length;
     const headline = kind === 'test' ? 'Test email: the duck can reach you.' : n ? `The duck found ${n} thing${n > 1 ? 's' : ''} to fix.` : 'All good \u2014 the duck is on patrol.';
     const html = `<div style="font:15px/1.45 -apple-system,Segoe UI,Arial,sans-serif;color:#1B2836;max-width:640px">`
       + (duckGif ? `<img src="cid:duck@licketysplit" width="220" height="110" alt="Lickety Split\u2019s duck sidekick" style="display:block;border:0;margin:0 0 4px">` : '')
       + `<div style="font:italic 800 22px/1.15 Arial Narrow,Arial,sans-serif;text-transform:uppercase;color:${n && kind !== 'clear' ? '#C23B3B' : '#2E8B57'}">${esc(headline)}</div>`
-      + parts.map((p) => `<h3 style="margin:18px 0 6px;font-size:16px;color:${p.title === 'What’s wrong' ? '#C23B3B' : p.title === 'All clear' ? '#2E8B57' : '#1B2836'}">${esc(p.title)}</h3><ul style="margin:0;padding-left:20px">${p.items.map((i) => `<li style="margin:3px 0">${esc(i)}</li>`).join('')}</ul>`).join('')
+      + parts.map((p) => `<h3 style="margin:18px 0 6px;font-size:16px;color:${p.title === 'What’s wrong' ? '#C23B3B' : p.title === 'All clear' ? '#2E8B57' : '#1B2836'}">${esc(p.title)}</h3><ul style="margin:0;padding-left:20px">${p.items.map((i) => `<li style="margin:5px 0">${esc(line(i))}${fix(i) ? `<div style="color:#5B6B7B;font-size:13px;margin-top:2px"><b style="color:#1B2836">How to fix:</b> ${esc(fix(i))}</div>` : ''}</li>`).join('')}</ul>`).join('')
       + `<p style="color:#5B6B7B;font-size:12px;margin-top:22px">— Lickety Split (Duck Hunting)</p></div>`;
     return { text, html };
   }
