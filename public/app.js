@@ -117,6 +117,82 @@ $('refresh').addEventListener('click', async () => {
   b.disabled = false;
 });
 
+// ---------- on the network: every device the hourly check found, in groups ----------
+let NET = null;
+const GROUPS = [
+  { id: 'licketysplit', title: 'Updated by Lickety Split', note: 'Firmware this page builds and sends.' },
+  { id: 'matter', title: 'Matter and Thread', note: 'Matter devices, Thread border routers and Matter controllers. Matter firmware usually updates through the app that set it up (Home Assistant, Alexa, Google Home, Apple Home).' },
+  { id: 'updatable', title: 'Updatable another way', note: 'ESPHome, Home Assistant update entities, and devices with their own web updater.' },
+  { id: 'other', title: 'Everything else', note: 'Phones, computers, plugs, speakers… with how they get updates, where that\u2019s known.' },
+];
+const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; };
+const nameOf = (h) => h.name || (h.maker && h.maker !== 'private address' ? h.maker + ' device' : 'Unknown device');
+function mineFor(h) {
+  const hs = [h.ip, h.dns, h.mdns].filter(Boolean).map((x) => x.toLowerCase());
+  return S.devices.find((d) => hs.includes(d.host.toLowerCase().replace(/:\d+$/, '')));
+}
+function netRow(h) {
+  const badges = [];
+  if (h.matter) badges.push(`<span class="badge matter">${h.thread ? 'Thread' : 'Matter'}</span>`);
+  if (h.inHa) badges.push('<span class="badge">in HA</span>');
+  if (!h.online) badges.push(`<span class="badge">offline · seen ${esc(ago(h.lastSeen))}</span>`);
+  let upd = '', act = '';
+  const u = h.update;
+  if (h.group === 'licketysplit') {
+    const f = S.firmware.find((x) => x.id === h.fw), cur = f && f.current, mine = mineFor(h);
+    const isNew = cur && h.version && h.version !== cur.version && !String(h.version).startsWith(cur.version);
+    upd = `<div class="upd"><b>Update:</b> ${esc(u ? u.how : 'Lickety Split')} · ${esc(f ? f.name : h.fw)} ${esc(h.version || '?')}${cur ? ` → ${esc(cur.version)}` : ''}</div>`;
+    if (isNew) badges.push('<span class="badge new">update ready</span>');
+    act = mine ? `<span class="badge ok">in your devices</span>` : h.ip ? `<button type="button" class="small" data-add="${esc(h.key)}">Add to your devices</button>` : '';
+  } else if (u) {
+    const v = u.installed || u.latest ? ` · ${esc(u.installed || '?')}${u.latest && u.latest !== u.installed ? ' → ' + esc(u.latest) : ''}` : '';
+    if (u.available) badges.push('<span class="badge new">update available</span>');
+    upd = `<div class="upd"><b>Update:</b> ${esc(u.how)}${v}</div>`;
+  }
+  const addr = [h.ip || h.ipv6, h.dns, h.mdns && h.mdns !== h.dns ? h.mdns : '', h.mac].filter(Boolean).map(esc).join('<br>');
+  return `<div class="row nd${h.online ? '' : ' gone'}"><div><b>${esc(nameOf(h))}</b>${badges.join('')}
+    <small>${esc([h.area, h.desc].filter(Boolean).join(' · ') || 'Nothing announced')}</small>${upd}</div>
+    <div class="addr">${addr}${act ? '<div style="margin-top:6px">' + act + '</div>' : ''}</div></div>`;
+}
+function renderNet() {
+  if (!NET) return;
+  const st = NET.settings, r = NET.result, q = $('netFilter').value.trim().toLowerCase();
+  const src = r && r.sources ? Object.entries({ 'Home Assistant': r.sources.ha, mDNS: r.sources.mdns, DNS: r.sources.dns })
+    .filter(([, v]) => v !== 'ok').map(([k, v]) => `${k}: ${v}`) : [];
+  $('netNote').textContent = (NET.scanning ? 'Checking the network now… ' : '')
+    + (r ? `${r.hosts.filter((h) => h.online).length} devices on ${r.subnet}, checked ${ago(r.at)}${st.enabled ? ' (every hour)' : ' (hourly check is off: turn it on in ⚙ Settings)'}.` : st.enabled ? 'The first check runs in a moment.' : 'Not checked yet. Press Check now, or turn on the hourly check in ⚙ Settings.')
+    + (src.length ? ' ' + src.join(' · ') + '.' : '') + (NET.error ? ' Last check failed: ' + NET.error : '');
+  $('netScan').disabled = !!NET.scanning;
+  if (!r) { $('netList').innerHTML = ''; return; }
+  const open = {};
+  for (const d of $('netList').querySelectorAll('details[data-g]')) open[d.dataset.g] = d.open;
+  $('netList').innerHTML = GROUPS.map((g) => {
+    const all = r.hosts.filter((h) => h.group === g.id);
+    const list = q ? all.filter((h) => [nameOf(h), h.desc, h.area, h.ip, h.ipv6, h.dns, h.mdns, h.mac, h.update && h.update.how].join(' ').toLowerCase().includes(q)) : all;
+    if (!all.length) return '';
+    const isOpen = g.id in open ? open[g.id] : true;
+    return `<details class="grp" data-g="${g.id}" ${isOpen || q ? 'open' : ''}><summary>${esc(g.title)} <span class="n">${q ? list.length + ' of ' : ''}${all.length}</span></summary>
+      <p class="note">${esc(g.note)}</p><div class="list">${list.map(netRow).join('') || '<div class="empty">Nothing matches.</div>'}</div></details>`;
+  }).join('');
+}
+async function loadNet() {
+  try { NET = await api('GET', 'api/network'); renderNet(); } catch (e) { $('netNote').textContent = 'Couldn\u2019t load the network list: ' + e.message; }
+  if (NET && NET.scanning) setTimeout(loadNet, 3000);
+}
+$('netFilter').addEventListener('input', renderNet);
+$('netScan').addEventListener('click', async () => {
+  $('netScan').disabled = true; NET = Object.assign({}, NET, { scanning: true }); renderNet();
+  try { NET = await api('POST', 'api/network/scan'); } catch (e) { NET.scanning = false; NET.error = e.message; }
+  renderNet();
+});
+$('netList').addEventListener('click', async (ev) => {
+  const b = ev.target.closest('button[data-add]'); if (!b) return;
+  const h = NET.result.hosts.find((x) => x.key === b.dataset.add); if (!h) return;
+  b.disabled = true;
+  try { await api('POST', 'api/devices', { name: nameOf(h), host: h.dns || h.ip, fw: h.fw }); say($('msg'), `${nameOf(h)} added to your devices.`, 'ok'); await load(); probeAll(); renderNet(); }
+  catch (e) { say($('msg'), e.message, 'err'); b.disabled = false; }
+});
+
 // ---------- reload (the home-screen app has no browser reload button) ----------
 $('reloadBtn').addEventListener('click', () => { $('reloadBtn').disabled = true; location.reload(); });
 
@@ -125,14 +201,22 @@ $('setBtn').addEventListener('click', () => {
   $('sOwner').value = S.owner || '';
   $('sRepos').textContent = 'Builds come from the GitHub Releases of: ' + [...new Set(S.firmware.map((f) => (f.repo || '<owner>/' + (f.id.startsWith('wled') ? 'licketysplit' : f.id === 'airplay' ? 'airplay-esp32' : f.id))))].join(', ') + '.';
   $('sToken').textContent = S.tokenSet ? 'A GitHub token is set (private repos work).' : 'No GitHub token set: the repos must be public (or set GITHUB_TOKEN in /etc/licketysplit.env).';
+  const n = S.net || {};
+  $('nOn').checked = !!n.enabled; $('nSubnet').value = n.subnet || ''; $('nSubnet').placeholder = n.autoSubnet || '192.168.1.0/24';
+  $('nDns').value = n.dns || ''; $('nHaUrl').value = n.haUrl || ''; $('nHaToken').value = '';
+  $('nHaToken').placeholder = n.haTokenSet ? 'Set (leave blank to keep it)' : 'Paste a token';
+  $('nHaNote').textContent = n.haTokenSet ? 'A Home Assistant token is set. It stays on this server and is never shown again.' : 'Without a token the list still works, but has no Home Assistant names, rooms or update versions.';
   say($('sMsg'), ''); $('setDlg').showModal();
 });
 $('sCancel').addEventListener('click', () => $('setDlg').close());
 $('setForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
-  try { await api('PUT', 'api/settings', { owner: $('sOwner').value }); $('setDlg').close(); say($('msg'), 'Saved. Press Check for new builds.', 'ok'); load(); }
+  try {
+    await api('PUT', 'api/settings', { owner: $('sOwner').value, net: { enabled: $('nOn').checked, subnet: $('nSubnet').value, dns: $('nDns').value, haUrl: $('nHaUrl').value, haToken: $('nHaToken').value } });
+    $('setDlg').close(); say($('msg'), 'Saved.', 'ok'); await load(); loadNet();
+  }
   catch (e) { say($('sMsg'), e.message, 'err'); }
 });
 
-load().then(() => { probeAll(); if (Object.values(S.ota).some((r) => r.state === 'sending')) watchOta(); })
+load().then(() => { probeAll(); loadNet(); if (Object.values(S.ota).some((r) => r.state === 'sending')) watchOta(); })
   .catch((e) => say($('msg'), 'Couldn’t load: ' + e.message, 'err'));

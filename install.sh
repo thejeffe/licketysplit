@@ -7,7 +7,7 @@ command -v node >/dev/null || { echo "Needs Node.js 18 or newer."; exit 1; }
 [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 18 ] || { echo "Needs Node.js 18 or newer (have $(node --version))."; exit 1; }
 id licketysplit >/dev/null 2>&1 || useradd --system --home /var/lib/licketysplit --shell /usr/sbin/nologin licketysplit
 mkdir -p /opt/licketysplit /var/lib/licketysplit
-cp -r server.js public /opt/licketysplit/
+cp -r server.js netscan.js public /opt/licketysplit/
 OWNER="${SUDO_USER:-root}"; chown -R "$OWNER":"$OWNER" /opt/licketysplit; chmod -R a+rX /opt/licketysplit
 chown -R licketysplit:licketysplit /var/lib/licketysplit
 if [ ! -f /etc/licketysplit.env ]; then install -m 600 deploy/licketysplit.env /etc/licketysplit.env; fi

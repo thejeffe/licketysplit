@@ -45,6 +45,13 @@
   <p class="note" id="usbNote"></p>
   <div class="list" id="cards"></div>
  </section>
+
+ <section class="box" id="netBox">
+  <div class="boxhead"><h2>On the network</h2><button type="button" class="small" id="netScan">Check now</button></div>
+  <p class="note" id="netNote"></p>
+  <input id="netFilter" type="search" placeholder="Filter by name, maker, address…" autocapitalize="off" spellcheck="false" aria-label="Filter the devices">
+  <div id="netList"></div>
+ </section>
 </main>
 
 <dialog id="setDlg" aria-labelledby="setTitle">
@@ -53,6 +60,15 @@
   <label>GitHub owner (user or organization the firmware repos belong to)<input id="sOwner" type="text" autocapitalize="off" spellcheck="false" placeholder="your-github-name"></label>
   <p class="note" id="sRepos"></p>
   <p class="note" id="sToken"></p>
+  <h3>Network check</h3>
+  <label class="chk"><input id="nOn" type="checkbox">Check the network for devices every hour</label>
+  <div class="two">
+   <label>Network (blank = this server's own)<input id="nSubnet" type="text" autocapitalize="off" spellcheck="false" placeholder="192.168.1.0/24"></label>
+   <label>DNS server (blank = the usual one)<input id="nDns" type="text" autocapitalize="off" spellcheck="false" placeholder="192.168.1.1"></label>
+  </div>
+  <label>Home Assistant address (names, rooms, update versions)<input id="nHaUrl" type="text" autocapitalize="off" spellcheck="false" placeholder="http://homeassistant.local:8123"></label>
+  <label>Home Assistant token (Profile → Security → Long-lived access tokens)<input id="nHaToken" type="password" autocomplete="off" spellcheck="false"></label>
+  <p class="note" id="nHaNote"></p>
   <div class="acts"><span class="msg" id="sMsg" role="status"></span><button type="button" id="sCancel">Cancel</button><button type="submit" class="pri">Save</button></div>
  </form>
 </dialog>

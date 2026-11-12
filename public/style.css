@@ -67,7 +67,31 @@ label{display:grid;gap:4px;font-size:13px;color:var(--muted);min-width:0}
  .title h1{font-size:30px}
 }
 
-dialog{border:1px solid var(--rule);border-radius:12px;background:var(--panel);color:var(--ink);padding:16px;width:min(520px,calc(100vw - 32px))}
+/* the network list */
+.boxhead{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.boxhead h2{margin:0}
+#netFilter{margin:2px 0 10px}
+.grp{margin-top:12px}
+.grp > summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:8px;padding:4px 2px;font:italic 700 18px/1.1 var(--display);text-transform:uppercase;letter-spacing:.02em}
+.grp > summary::-webkit-details-marker{display:none}
+.grp > summary::before{content:"▸";font-style:normal;color:var(--muted);transition:transform .15s}
+.grp[open] > summary::before{transform:rotate(90deg)}
+.grp > summary .n{font:500 13px var(--body);color:var(--muted);text-transform:none;letter-spacing:0}
+.grp > .note{margin:0 0 8px 18px}
+.nd{grid-template-columns:minmax(0,1fr) minmax(0,auto)}
+.nd .addr{font:12px var(--mono);color:var(--muted);text-align:right;overflow-wrap:anywhere}
+.nd .upd{font-size:12.5px;margin-top:3px;overflow-wrap:anywhere}
+.nd .upd b{font-weight:600}
+.nd.gone{opacity:.55}
+.badge{display:inline-block;font:600 10.5px/1 var(--body);letter-spacing:.04em;text-transform:uppercase;padding:3px 6px;border-radius:99px;border:1px solid var(--rule);color:var(--muted);margin-left:6px;vertical-align:2px}
+.badge.matter{border-color:#7b61ff;color:#7b61ff}.badge.ok{border-color:var(--ok);color:var(--ok)}.badge.new{border-color:var(--accent);color:var(--accent)}
+.chk{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:14px}
+.chk input{width:auto}
+.two{display:grid;gap:8px;grid-template-columns:1fr 1fr}
+dialog h3{margin:6px 0 0;font:italic 700 18px/1.1 var(--display);text-transform:uppercase;letter-spacing:.02em}
+@media (max-width:640px){.nd{grid-template-columns:minmax(0,1fr)}.nd .addr{text-align:left}.two{grid-template-columns:1fr}}
+
+dialog{border:1px solid var(--rule);border-radius:12px;background:var(--panel);color:var(--ink);padding:16px;width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto}
 dialog::backdrop{background:#0008}
 dialog form{display:grid;gap:10px}
 dialog h2{margin:0}

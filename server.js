@@ -8,6 +8,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const netscan = require('./netscan');
 
 const CFG = {
   port: +(process.env.PORT || 8110),
@@ -41,17 +42,26 @@ const FIRMWARE = [
 const fwById = (id) => FIRMWARE.find((f) => f.id === id);
 
 // ---------- saved settings ----------
+const DEFAULT_NET = {
+  enabled: false,       // check the network every hour
+  subnet: '',           // '' = this server's own network
+  dns: '',              // '' = the system's DNS server
+  haUrl: 'http://homeassistant.local:8123',
+  haToken: '',          // Home Assistant long-lived access token (never sent back to the page)
+};
 const DEFAULT_CONF = {
   owner: '',
   devices: [],          // added on the page; saved in DATA_DIR/config.json
+  net: DEFAULT_NET,
 };
 let conf;
 function loadConf() {
   try { conf = Object.assign({}, DEFAULT_CONF, JSON.parse(fs.readFileSync(CONF_FILE, 'utf8'))); } catch (e) { conf = JSON.parse(JSON.stringify(DEFAULT_CONF)); }
+  conf.net = Object.assign({}, DEFAULT_NET, conf.net || {});
 }
 function saveConf() {
   fs.mkdirSync(CFG.dataDir, { recursive: true });
-  fs.writeFileSync(CONF_FILE + '.tmp', JSON.stringify(conf, null, 1)); fs.renameSync(CONF_FILE + '.tmp', CONF_FILE);
+  fs.writeFileSync(CONF_FILE + '.tmp', JSON.stringify(conf, null, 1), { mode: 0o600 }); fs.renameSync(CONF_FILE + '.tmp', CONF_FILE);
 }
 
 // ---------- firmware store ----------
@@ -227,6 +237,51 @@ async function ota(dev) {
   return `${fw.name} ${cur.version} sent to ${dev.name}; it restarts by itself.`;
 }
 
+// ---------- network check (netscan.js) ----------
+const NET_FILE = path.join(CFG.dataDir, 'network.json');
+const NET_EVERY = 3600 * 1000;
+let netResult = null, netRun = null, netError = null;
+try { netResult = JSON.parse(fs.readFileSync(NET_FILE, 'utf8')); } catch (e) { /* none yet */ }
+function publicNet() {
+  const n = conf.net;
+  return { enabled: n.enabled, subnet: n.subnet, dns: n.dns, haUrl: n.haUrl, haTokenSet: !!n.haToken,
+    autoSubnet: (netscan.localNets()[0] || {}).cidr || '' };
+}
+function scanNetwork() {
+  if (netRun) return netRun;
+  netRun = netscan.scan({ subnet: conf.net.subnet, dns: conf.net.dns, haUrl: conf.net.haUrl, haToken: conf.net.haToken, dataDir: CFG.dataDir })
+    .then((r) => {
+      netResult = netscan.merge(netResult, r); netError = null;
+      fs.writeFileSync(NET_FILE + '.tmp', JSON.stringify(netResult)); fs.renameSync(NET_FILE + '.tmp', NET_FILE);
+      log(`Network check: ${r.hosts.length} devices in ${Math.round(r.took / 1000)} s (HA ${r.sources.ha}, mDNS ${r.sources.mdns}, DNS ${r.sources.dns})`);
+      return netResult;
+    })
+    .catch((e) => { netError = e.message; log('Network check failed: ' + e.message); throw e; })
+    .finally(() => { netRun = null; });
+  return netRun;
+}
+function netTick() {
+  if (conf.net.enabled && !netRun && (!netResult || Date.now() - netResult.at >= NET_EVERY)) scanNetwork().catch(() => {});
+}
+function cleanNet(b) {
+  const n = Object.assign({}, conf.net);
+  if ('enabled' in b) n.enabled = !!b.enabled;
+  if ('subnet' in b) { const v = String(b.subnet || '').trim(); n.subnet = v ? netscan.parseCidr(v).cidr : ''; }
+  if ('dns' in b) {
+    const v = String(b.dns || '').trim();
+    if (v && !require('net').isIP(v)) throw new Error('The DNS server should be an IP address.');
+    n.dns = v;
+  }
+  if ('haUrl' in b) {
+    const v = String(b.haUrl || '').trim().replace(/\/+$/, '');
+    if (v && !/^https?:\/\/[^\s/]+(:\d+)?$/.test(v)) throw new Error('Home Assistant\u2019s address should look like http://homeassistant.local:8123');
+    n.haUrl = v;
+  }
+  if (typeof b.haToken === 'string' && b.haToken.trim()) n.haToken = b.haToken.trim().slice(0, 600);
+  if (b.haTokenClear) n.haToken = '';
+  return n;
+}
+
 // ---------- HTTP ----------
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.bin': 'application/octet-stream' };
 function send(res, code, body, type, extra) {
@@ -253,12 +308,27 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x'), p = url.pathname;
   try {
     if (p === '/api/state' && req.method === 'GET') {
-      return send(res, 200, { owner: conf.owner, firmware: catalog(), devices: conf.devices, ota: otaRuns, refreshing: !!refreshing, lastRefresh: lastRefresh.at, tokenSet: !!CFG.token });
+      return send(res, 200, { owner: conf.owner, firmware: catalog(), devices: conf.devices, ota: otaRuns, refreshing: !!refreshing, lastRefresh: lastRefresh.at, tokenSet: !!CFG.token, net: publicNet() });
     }
     if (p === '/api/settings' && req.method === 'PUT') {
-      const b = await readBody(req), owner = String(b.owner || '').trim();
-      if (owner && !/^[A-Za-z0-9-]{1,39}$/.test(owner)) throw new Error('That isn’t a GitHub user or organization name.');
-      conf.owner = owner; saveConf(); return send(res, 200, { owner });
+      const b = await readBody(req);
+      if ('owner' in b) {
+        const owner = String(b.owner || '').trim();
+        if (owner && !/^[A-Za-z0-9-]{1,39}$/.test(owner)) throw new Error('That isn’t a GitHub user or organization name.');
+        conf.owner = owner;
+      }
+      const wasOn = conf.net.enabled;
+      if (b.net && typeof b.net === 'object') conf.net = cleanNet(b.net);
+      saveConf();
+      if (conf.net.enabled && !wasOn) netTick();
+      return send(res, 200, { owner: conf.owner, net: publicNet() });
+    }
+    if (p === '/api/network' && req.method === 'GET') {
+      return send(res, 200, { settings: publicNet(), scanning: !!netRun, error: netError, result: netResult });
+    }
+    if (p === '/api/network/scan' && req.method === 'POST') {
+      const r = await scanNetwork();
+      return send(res, 200, { settings: publicNet(), scanning: false, error: null, result: r });
     }
     if (p === '/api/refresh' && req.method === 'POST') { const r = await refreshAll(); return send(res, 200, { results: r.results, firmware: catalog() }); }
     if (p === '/api/devices' && req.method === 'POST') {
@@ -306,4 +376,6 @@ fs.mkdirSync(FW_DIR, { recursive: true });
 server.listen(CFG.port, CFG.bind, () => log(`Lickety Split on http://${CFG.bind}:${CFG.port} · data ${CFG.dataDir} · GitHub owner ${conf.owner || '(not set)'}`));
 setTimeout(() => refreshAll(), 5000);
 setInterval(() => refreshAll(), 6 * 3600 * 1000);
+setTimeout(netTick, 20000);
+setInterval(netTick, 60000);
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => process.exit(0));
