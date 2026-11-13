@@ -108,13 +108,13 @@
    <label>at<select id="mHour"></select></label>
   </div>
   <div class="four">
-   <label>Door open (min)<input id="mDoor" type="number" min="1" max="1440" inputmode="numeric"></label>
+   <label>Unlocked (min)<input id="mDoor" type="number" min="1" max="1440" inputmode="numeric"></label>
    <label>Garage open (min)<input id="mGarage" type="number" min="1" max="1440" inputmode="numeric"></label>
    <label>Battery low (%)<input id="mBatt" type="number" min="1" max="90" inputmode="numeric"></label>
    <label>Disk low (GB)<input id="mDisk" type="number" min="0" max="500" step="0.5" inputmode="decimal"></label>
   </div>
   <label>Also watch these web addresses (one per line: Name = address)<textarea id="mWatch" rows="3" spellcheck="false" placeholder="Signinator = http://localhost:8080/"></textarea></label>
-  <p class="note">Your devices on the Firmware tab, Home Assistant and Pi-hole are always checked. Something counts as wrong when it is still wrong at the next check (doors and the garage after the times above).</p>
+  <p class="note">Your devices on the Firmware tab, Home Assistant and Pi-hole are always checked. Something counts as wrong when it is still wrong at the next check (locks and the garage after the times above; a jammed lock right away).</p>
 
   <h3>Health ping</h3>
   <div class="two">

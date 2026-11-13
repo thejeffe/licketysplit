@@ -1,6 +1,6 @@
 'use strict';
 // Duck Hunting: home checks every minute, a report on the page, and email when something goes wrong.
-//  - Home Assistant (one template call): reachable, doors and garage open too long (windows are fine open), broken automations (switched off is fine),
+//  - Home Assistant (one template call): reachable, locks unlocked too long or jammed, garage open too long, broken automations (switched off is fine),
 //    devices with every entity unavailable, low batteries, updates waiting
 //  - Pi-hole: answering DNS, blocking on, block lists fresh, Pi-hole update waiting
 //  - your devices (the Firmware tab's list) and extra web addresses to watch (Signinator, tree-show, ...)
@@ -96,11 +96,12 @@ let duckGif = null;
 try { duckGif = fs.readFileSync(require('path').join(__dirname, 'public', 'duck.gif')); } catch (e) { /* no duck: plain email */ }
 
 // ---------- the checks ----------
-const HA_TEMPLATE = `{%- set ns = namespace(doors=[], garage=[], autos=[], batt=[], upd=[], dead=[], seen=[]) -%}
+const HA_TEMPLATE = `{%- set ns = namespace(locks=[], garage=[], autos=[], batt=[], upd=[], dead=[], seen=[]) -%}
+{%- for s in states.lock -%}{%- if s.state in ['unlocked', 'open', 'opening', 'unlocking', 'jammed'] -%}
+{%- set ns.locks = ns.locks + [{'id': s.entity_id, 'name': s.name, 'state': s.state, 'since': as_timestamp(s.last_changed, 0)}] -%}{%- endif -%}{%- endfor -%}
 {%- for s in states.binary_sensor -%}{%- set dc = s.attributes.get('device_class') -%}
-{%- if dc in ['door', 'garage_door'] and s.state == 'on' -%}
-{%- set dv = device_id(s.entity_id) -%}{%- set locks = (device_entities(dv) if dv else []) | select('match', 'lock\\.') | list -%}
-{%- set ns.doors = ns.doors + [{'id': s.entity_id, 'name': s.name, 'cls': dc, 'since': as_timestamp(s.last_changed, 0), 'locked': locks | select('is_state', 'locked') | list | length > 0}] -%}{%- endif -%}
+{%- if dc == 'garage_door' and s.state == 'on' -%}
+{%- set ns.garage = ns.garage + [{'id': s.entity_id, 'name': s.name, 'since': as_timestamp(s.last_changed, 0)}] -%}{%- endif -%}
 {%- if dc == 'battery' and s.state == 'on' -%}{%- set ns.batt = ns.batt + [{'id': s.entity_id, 'name': s.name, 'v': -1}] -%}{%- endif -%}
 {%- endfor -%}
 {%- for s in states.cover -%}{%- if (s.attributes.get('device_class') in ['garage', 'gate'] or 'garage' in s.entity_id) and s.state in ['open', 'opening'] -%}
@@ -116,7 +117,7 @@ const HA_TEMPLATE = `{%- set ns = namespace(doors=[], garage=[], autos=[], batt=
 {%- set ents = device_entities(d) -%}{%- if ents | select('has_value') | list | length == 0 -%}
 {%- set ns.dead = ns.dead + [{'id': d, 'name': device_attr(d, 'name_by_user') or device_attr(d, 'name'), 'area': area_name(d), 'since': as_timestamp(s.last_changed, 0)}] -%}
 {%- endif -%}{%- endif -%}{%- endif -%}{%- endfor -%}
-{{ {'doors': ns.doors, 'garage': ns.garage, 'autos': ns.autos, 'batt': ns.batt, 'upd': ns.upd, 'dead': ns.dead} | to_json }}`;
+{{ {'locks': ns.locks, 'garage': ns.garage, 'autos': ns.autos, 'batt': ns.batt, 'upd': ns.upd, 'dead': ns.dead} | to_json }}`;
 
 async function haCheck(url, token) {
   const r = await fetch(url.replace(/\/+$/, '') + '/api/template', {
@@ -182,6 +183,9 @@ const mins = (ms) => { const m = Math.round(ms / 60000); return m < 60 ? `${m} m
 // one or two sentences of advice for each kind of problem and update
 function adviceFor(f, devices) {
   const id = f.id, t = f.title;
+  if (id.startsWith('lock:')) return /jammed/.test(t)
+    ? 'Something stopped the bolt: make sure the door is fully shut and the strike plate lines up, then lock it again (from the lock or Home Assistant).'
+    : 'Lock it from Home Assistant or the lock\u2019s app. If it says unlocked but is locked, check the lock\u2019s battery and its connection to Home Assistant.';
   if (id.startsWith('door:')) return 'Close the door. If it is shut, the sensor is wrong: check its magnet or recalibrate it in the lock’s app, or press Ignore.';
   if (id.startsWith('garage:')) return 'Close it from Home Assistant (or the wall button). If it is shut, check the garage tilt/position sensor and its battery.';
   if (id.startsWith('auto:')) return 'Home Assistant → Settings → Automations: open it and look for the red error (usually an entity that was renamed or removed). Also check Settings → Repairs, then reload automations.';
@@ -242,11 +246,12 @@ function createMonitor(deps) {
     if (net.haUrl && net.haToken) {
       try {
         const h = await haCheck(net.haUrl, net.haToken);
-        check('Home Assistant', true, `${h.doors.length} open · ${h.autos.length} automations broken · ${h.upd.length} updates`);
-        for (const d of h.doors) {
-          if (d.locked) continue;      // a lock's own door sensor while the lock is locked: the door is shut (the sensor is wrong)
-          const since = d.since * 1000, lim = (d.cls === 'garage_door' ? c.garageMin : c.doorMin) * 60000;
-          if (now - since >= lim) add('door:' + d.id, 'alert', 'Doors', `${d.name} open for ${mins(now - since)}`, d.cls.replace('_', ' '), since, 0);
+        check('Home Assistant', true, `${h.locks.length} unlocked · ${h.garage.length} garage open · ${h.autos.length} automations broken · ${h.upd.length} updates`);
+        // locks: unlocked longer than doorMin minutes; jammed at once (door sensors aren't watched: doors may stand open)
+        for (const l of h.locks || []) {
+          const since = l.since * 1000;
+          if (l.state === 'jammed') add('lock:' + l.id, 'alert', 'Locks', `${l.name} is jammed`, 'the bolt didn\u2019t finish moving', since, 0);
+          else if (now - since >= c.doorMin * 60000) add('lock:' + l.id, 'alert', 'Locks', `${l.name} unlocked for ${mins(now - since)}`, l.state, since, 0);
         }
         for (const g of h.garage) {
           const since = g.since * 1000;
