@@ -23,6 +23,7 @@ const PIHOLE_EVERY = 5 * 60000;
 const DEFAULTS = {
   enabled: false,
   every: 5,              // minutes between checks
+  ducks: {},             // which ducks are hunted: { locks: false, ... } (missing = on)
   ignore: [],            // problem ids you chose to ignore (e.g. a lock's unreliable door sensor)
   to: '',                // where the email goes (comma-separated)
   from: '',              // the Gmail address that sends it
@@ -219,6 +220,13 @@ function adviceFor(f, devices) {
   return '';
 }
 
+// which duck (a setting on the Ducks tab) a problem belongs to
+function duckOf(id) {
+  const k = id.split(':')[0];
+  return { lock: 'locks', garage: 'garage', auto: 'automations', ha: 'ha', pihole: 'pihole', piholeblk: 'pihole', piholegrav: 'pihole',
+    piholeapi: 'pihole', upd: 'updates', piholeupd: 'updates', dev: 'devices', web: 'watch', disk: 'disk', disklow: 'disk' }[k] || k;
+}
+
 // ---------- the monitor ----------
 function createMonitor(deps) {
   // deps: { cfg() -> monitor settings, net() -> conf.net, devices() -> conf.devices, probe(dev), dataDir, log,
@@ -311,11 +319,11 @@ function createMonitor(deps) {
 
   // keep the list of problems: when each started, whether it's confirmed (lasted its grace time), history of fixed ones
   function update(found) {
-    const now = Date.now(), seen = new Set(), ign = new Set(cfg().ignore || []);
+    const now = Date.now(), seen = new Set(), ign = new Set(cfg().ignore || []), ducks = cfg().ducks || {};
     // only what needs doing: problems, and updates waiting to be installed (each update once, wherever it came from)
     const upd = new Set();
     found = found.filter((f) => {
-      if (ign.has(f.id)) return false;
+      if (ign.has(f.id) || ducks[duckOf(f.id)] === false) return false;
       if (f.sev === 'alert') return true;
       if (f.cat !== 'Updates') return false;
       const k = f.title.toLowerCase().replace(/\s+(update|dns)$/g, '').replace(/\s+/g, ' ') + '|' + f.detail.toLowerCase().replace(/^v/, '').replace(/\u2192 v/, '\u2192 ');
@@ -344,6 +352,7 @@ function createMonitor(deps) {
   function report() {
     const now = Date.now(), al = confirmed(), pending = Object.values(st.active).filter((a) => a.sev === 'alert' && now - a.first < a.grace);
     return { at: st.at || 0, enabled: cfg().enabled, every: +cfg().every || 5, alerts: al.sort((a, b) => a.first - b.first), pending, notices: notices().sort((a, b) => a.cat.localeCompare(b.cat) || a.title.localeCompare(b.title)),
+      perDuck: Object.values(st.active).filter((a) => a.sev === 'alert' || a.cat === 'Updates').reduce((m, a) => { const k = duckOf(a.id); m[k] = (m[k] || 0) + 1; return m; }, {}),
       checks: st.checks, history: st.history.slice(0, 20), emails: st.emails.slice(0, 15), ignored: (cfg().ignore || []).map((id) => ({ id, title: (st.titles || {})[id] || id })) };
   }
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));

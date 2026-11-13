@@ -382,7 +382,16 @@ $('setBtn').addEventListener('click', () => {
   $('mPw').placeholder = mo.passwordSet ? 'Set (leave blank to keep it)' : '16 letters from Google';
   $('mNew').checked = mo.notifyNew !== false; $('mClear').checked = mo.notifyClear !== false;
   $('mDay').value = String(mo.weeklyDay ?? 1); $('mHour').value = String(mo.weeklyHour ?? 8);
-  $('mDoor').value = mo.doorMin ?? 15; $('mGarage').value = mo.garageMin ?? 30; $('mBatt').value = mo.battery ?? 15; $('mDisk').value = mo.diskGb ?? 1;
+  $('mDoor').value = mo.doorMin ?? 15; $('mGarage').value = mo.garageMin ?? 30; $('mDisk').value = mo.diskGb ?? 1;
+  const dk = mo.ducks || {}, per = (ST && ST.perDuck) || {};
+  for (const c of document.querySelectorAll('[data-duck]')) c.checked = dk[c.dataset.duck] !== false;
+  for (const e of document.querySelectorAll('[data-dstat]')) {
+    const k = e.dataset.dstat, on = dk[k] !== false, n = per[k] || 0;
+    e.textContent = !on ? 'off' : n ? (k === 'updates' ? `${n} to install` : `${n} now`) : 'OK';
+    e.className = !on ? 'off' : n ? 'bad' : '';
+  }
+  $('duckDevs').textContent = S.devices.length ? 'Answering: ' + S.devices.map((d) => d.name).join(', ') : 'The Firmware tab\u2019s devices answer (none added yet)';
+  showSTab('gen');
   $('mWatch').value = (mo.watch || []).map((w) => `${w.name} = ${w.url}`).join('\n');
   const pg = S.ping || {};
   $('pUrl').value = ''; $('pUrl').placeholder = pg.set ? `Set: ${pg.host} (leave blank to keep it)` : 'https://hc-ping.com/your-check-id';
@@ -391,6 +400,12 @@ $('setBtn').addEventListener('click', () => {
     : pg.last ? `Last ping ${ago(pg.last.at)}: ${pg.last.ok ? 'OK' : 'failed'} (${pg.last.status}).` : 'No ping sent yet.';
   say($('sMsg'), ''); $('setDlg').showModal();
 });
+// settings tabs
+function showSTab(t) {
+  for (const b of document.querySelectorAll('[data-stab]')) b.setAttribute('aria-selected', String(b.dataset.stab === t));
+  for (const p of document.querySelectorAll('[data-spane]')) p.hidden = p.dataset.spane !== t;
+}
+document.querySelector('.stabs').addEventListener('click', (ev) => { const b = ev.target.closest('[data-stab]'); if (b) showSTab(b.dataset.stab); });
 $('sCancel').addEventListener('click', () => $('setDlg').close());
 $('setForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
@@ -398,7 +413,8 @@ $('setForm').addEventListener('submit', async (ev) => {
     await api('PUT', 'api/settings', { owner: $('sOwner').value, net: { enabled: $('nOn').checked, subnet: $('nSubnet').value, dns: $('nDns').value, haUrl: $('nHaUrl').value, haToken: $('nHaToken').value, piholeUrl: $('nPiUrl').value, piholePassword: $('nPiPw').value, piholeNames: $('nPiNames').checked, piholeSuffix: $('nPiSuffix').value || 'lan' },
       ping: { url: $('pUrl').value, every: +$('pEvery').value, clear: $('pClear').checked },
       monitor: { enabled: $('mOn').checked, every: +$('mEvery').value, to: $('mTo').value, from: $('mFrom').value, password: $('mPw').value, notifyNew: $('mNew').checked, notifyClear: $('mClear').checked,
-        weeklyDay: +$('mDay').value, weeklyHour: +$('mHour').value, doorMin: +$('mDoor').value, garageMin: +$('mGarage').value, battery: +$('mBatt').value, diskGb: +$('mDisk').value, watch: $('mWatch').value } });
+        weeklyDay: +$('mDay').value, weeklyHour: +$('mHour').value, doorMin: +$('mDoor').value, garageMin: +$('mGarage').value,  diskGb: +$('mDisk').value, watch: $('mWatch').value,
+        ducks: Object.fromEntries([...document.querySelectorAll('[data-duck]')].map((c) => [c.dataset.duck, c.checked])) } });
     $('setDlg').close(); say($('msg'), 'Saved.', 'ok'); await load(); loadNet(); loadStatus();
   }
   catch (e) { say($('sMsg'), e.message, 'err'); }

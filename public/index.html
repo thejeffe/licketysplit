@@ -70,59 +70,82 @@
 <dialog id="setDlg" aria-labelledby="setTitle">
  <form method="dialog" id="setForm">
   <h2 id="setTitle">Settings</h2>
-  <label>GitHub owner (user or organization the firmware repos belong to)<input id="sOwner" type="text" autocapitalize="off" spellcheck="false" placeholder="your-github-name"></label>
-  <p class="note" id="sRepos"></p>
-  <p class="note" id="sToken"></p>
-  <h3>Network check</h3>
-  <label class="chk"><input id="nOn" type="checkbox">Check the network for devices every hour</label>
-  <div class="two">
-   <label>Network (blank = this server's own)<input id="nSubnet" type="text" autocapitalize="off" spellcheck="false" placeholder="192.168.1.0/24"></label>
-   <label>DNS server (blank = the usual one)<input id="nDns" type="text" autocapitalize="off" spellcheck="false" placeholder="192.168.1.1"></label>
-  </div>
-  <label>Home Assistant address (names, rooms, update versions)<input id="nHaUrl" type="text" autocapitalize="off" spellcheck="false" placeholder="http://homeassistant.local:8123"></label>
-  <label>Home Assistant token (Profile → Security → Long-lived access tokens)<input id="nHaToken" type="password" autocomplete="off" spellcheck="false"></label>
-  <p class="note" id="nHaNote"></p>
-  <div class="two">
-   <label>Pi-hole address (host names, local DNS, queries)<input id="nPiUrl" type="text" autocapitalize="off" spellcheck="false" placeholder="https://pi.hole"></label>
-   <label>Pi-hole password (or an app password)<input id="nPiPw" type="password" autocomplete="off" spellcheck="false"></label>
-  </div>
-  <label class="chk"><input id="nPiNames" type="checkbox">Give devices without a DNS name a name in Pi-hole</label>
-  <label>Name ending<input id="nPiSuffix" type="text" autocapitalize="off" spellcheck="false" placeholder="lan, or home.example.com" style="max-width:320px"></label>
-  <p class="note">Names come from Home Assistant, the device itself or its announcements, like <i>kitchen-plug.lan</i>. Each name stays with its device (by MAC address) when its address changes, and an address reused by another device loses the old name at once. Lickety Split only changes names it made; ones you remove stay removed.</p>
-  <h3>Duck Hunting (email when something's wrong)</h3>
-  <div class="two">
-   <label class="chk"><input id="mOn" type="checkbox">Email me when something goes wrong</label>
-   <label>Check every<select id="mEvery"><option value="1">minute</option><option value="2">2 minutes</option><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></label>
-  </div>
-  <div class="two">
-   <label>Send to (one or more addresses)<input id="mTo" type="text" autocapitalize="off" spellcheck="false" placeholder="you@example.com"></label>
-   <label>Send from (a Gmail address)<input id="mFrom" type="text" autocapitalize="off" spellcheck="false" placeholder="you@gmail.com"></label>
-  </div>
-  <label>Gmail app password (Google Account → Security → 2-Step Verification → App passwords)<input id="mPw" type="password" autocomplete="off" spellcheck="false"></label>
-  <div class="two">
-   <label class="chk"><input id="mNew" type="checkbox">When something new goes wrong</label>
-   <label class="chk"><input id="mClear" type="checkbox">All clear when it's fixed</label>
-  </div>
-  <div class="two">
-   <label>Weekly summary<select id="mDay"><option value="-1">off</option><option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></select></label>
-   <label>at<select id="mHour"></select></label>
-  </div>
-  <div class="four">
-   <label>Unlocked (min)<input id="mDoor" type="number" min="1" max="1440" inputmode="numeric"></label>
-   <label>Garage open (min)<input id="mGarage" type="number" min="1" max="1440" inputmode="numeric"></label>
-   <label>Battery low (%)<input id="mBatt" type="number" min="1" max="90" inputmode="numeric"></label>
-   <label>Disk low (GB)<input id="mDisk" type="number" min="0" max="500" step="0.5" inputmode="decimal"></label>
-  </div>
-  <label>Also watch these web addresses (one per line: Name = address)<textarea id="mWatch" rows="3" spellcheck="false" placeholder="Signinator = http://localhost:8080/"></textarea></label>
-  <p class="note">Your devices on the Firmware tab, Home Assistant and Pi-hole are always checked. Something counts as wrong when it is still wrong at the next check (locks and the garage after the times above; a jammed lock right away).</p>
+  <nav class="tabs stabs" role="tablist">
+   <button type="button" role="tab" data-stab="gen" aria-selected="true">General</button>
+   <button type="button" role="tab" data-stab="net" aria-selected="false">Network</button>
+   <button type="button" role="tab" data-stab="mail" aria-selected="false">Email</button>
+   <button type="button" role="tab" data-stab="ducks" aria-selected="false">Ducks</button>
+  </nav>
 
-  <h3>Health ping</h3>
-  <div class="two">
-   <label>Ping this address (e.g. healthchecks.io)<input id="pUrl" type="password" autocomplete="off" spellcheck="false"></label>
-   <label>Every<select id="pEvery"><option value="60">minute</option><option value="300">5 minutes</option><option value="900">15 minutes</option><option value="3600">hour</option></select></label>
+  <div class="spane" data-spane="gen">
+   <label>GitHub owner (user or organization the firmware repos belong to)<input id="sOwner" type="text" autocapitalize="off" spellcheck="false" placeholder="your-github-name"></label>
+   <p class="note" id="sRepos"></p>
+   <p class="note" id="sToken"></p>
+   <h3>Health ping</h3>
+   <div class="two">
+    <label>Ping this address (e.g. healthchecks.io)<input id="pUrl" type="password" autocomplete="off" spellcheck="false"></label>
+    <label>Every<select id="pEvery"><option value="60">minute</option><option value="300">5 minutes</option><option value="900">15 minutes</option><option value="3600">hour</option></select></label>
+   </div>
+   <label class="chk"><input id="pClear" type="checkbox">Stop pinging (forget the address)</label>
+   <p class="note" id="pNote"></p>
   </div>
-  <label class="chk"><input id="pClear" type="checkbox">Stop pinging (forget the address)</label>
-  <p class="note" id="pNote"></p>
+
+  <div class="spane" data-spane="net" hidden>
+   <label class="chk"><input id="nOn" type="checkbox">Check the network for devices every hour</label>
+   <div class="two">
+    <label>Network (blank = this server's own)<input id="nSubnet" type="text" autocapitalize="off" spellcheck="false" placeholder="192.168.1.0/24"></label>
+    <label>DNS server (blank = the usual one)<input id="nDns" type="text" autocapitalize="off" spellcheck="false" placeholder="192.168.1.1"></label>
+   </div>
+   <h3>Home Assistant</h3>
+   <label>Address (names, rooms, update versions, and the ducks)<input id="nHaUrl" type="text" autocapitalize="off" spellcheck="false" placeholder="http://homeassistant.local:8123"></label>
+   <label>Token (Profile → Security → Long-lived access tokens)<input id="nHaToken" type="password" autocomplete="off" spellcheck="false"></label>
+   <p class="note" id="nHaNote"></p>
+   <h3>Pi-hole</h3>
+   <div class="two">
+    <label>Address (host names, local DNS, queries)<input id="nPiUrl" type="text" autocapitalize="off" spellcheck="false" placeholder="https://pi.hole"></label>
+    <label>Password (or an app password)<input id="nPiPw" type="password" autocomplete="off" spellcheck="false"></label>
+   </div>
+   <label class="chk"><input id="nPiNames" type="checkbox">Give every device without a DNS name a name in Pi-hole</label>
+   <label>Name ending<input id="nPiSuffix" type="text" autocapitalize="off" spellcheck="false" placeholder="lan, or home.example.com" style="max-width:320px"></label>
+   <p class="note">Each name stays with its device (by MAC address) when its address changes, and an address reused by another device loses the old name at once. Lickety Split only changes names it made; ones you remove stay removed.</p>
+  </div>
+
+  <div class="spane" data-spane="mail" hidden>
+   <div class="two">
+    <label class="chk"><input id="mOn" type="checkbox">Email me when something goes wrong</label>
+    <label>Hunt every<select id="mEvery"><option value="1">minute</option><option value="2">2 minutes</option><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></label>
+   </div>
+   <div class="two">
+    <label>Send to (one or more addresses)<input id="mTo" type="text" autocapitalize="off" spellcheck="false" placeholder="you@example.com"></label>
+    <label>Send from (a Gmail address)<input id="mFrom" type="text" autocapitalize="off" spellcheck="false" placeholder="you@gmail.com"></label>
+   </div>
+   <label>Gmail app password (Google Account → Security → 2-Step Verification → App passwords)<input id="mPw" type="password" autocomplete="off" spellcheck="false"></label>
+   <div class="two">
+    <label class="chk"><input id="mNew" type="checkbox">When something new goes wrong</label>
+    <label class="chk"><input id="mClear" type="checkbox">All clear when it's fixed</label>
+   </div>
+   <div class="two">
+    <label>Weekly summary<select id="mDay"><option value="-1">off</option><option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></select></label>
+    <label>at<select id="mHour"></select></label>
+   </div>
+   <p class="note">Something counts as wrong when it is still wrong at the next hunt. Which ducks are hunted: the Ducks tab.</p>
+  </div>
+
+  <div class="spane" data-spane="ducks" hidden>
+   <p class="note">The ducks being hunted. Switch one off and it's not checked, shown or emailed.</p>
+   <div class="ducks">
+    <label class="duck"><input type="checkbox" data-duck="locks"><span><b>Locks</b><small>Unlocked longer than <input id="mDoor" type="number" min="1" max="1440" inputmode="numeric"> min; jammed right away</small></span><em data-dstat="locks"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="garage"><span><b>Garage</b><small>Open longer than <input id="mGarage" type="number" min="1" max="1440" inputmode="numeric"> min</small></span><em data-dstat="garage"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="automations"><span><b>Broken automations</b><small>Automations Home Assistant can't run (switched-off ones are fine)</small></span><em data-dstat="automations"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="ha"><span><b>Home Assistant</b><small>Answering</small></span><em data-dstat="ha"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="pihole"><span><b>Pi-hole</b><small>Answering DNS, blocking on, block lists updated</small></span><em data-dstat="pihole"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="updates"><span><b>Updates to install</b><small>Home Assistant, Pi-hole, ESPHome, Matter and other devices</small></span><em data-dstat="updates"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="devices"><span><b>Your devices</b><small id="duckDevs">The Firmware tab's devices answer</small></span><em data-dstat="devices"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="watch"><span><b>Watched addresses</b><small>These answer (one per line: Name = address)</small><textarea id="mWatch" rows="3" spellcheck="false" placeholder="Signinator = http://localhost:8080/"></textarea></span><em data-dstat="watch"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="disk"><span><b>Disk space</b><small>This server has less than <input id="mDisk" type="number" min="0" max="500" step="0.5" inputmode="decimal"> GB free</small></span><em data-dstat="disk"></em></label>
+   </div>
+  </div>
+
   <div class="acts"><span class="msg" id="sMsg" role="status"></span><button type="button" id="sCancel">Cancel</button><button type="submit" class="pri">Save</button></div>
  </form>
 </dialog>
