@@ -393,6 +393,9 @@ $('setBtn').addEventListener('click', () => {
   $('duckDevs').textContent = S.devices.length ? 'Answering: ' + S.devices.map((d) => d.name).join(', ') : 'The Firmware tab\u2019s devices answer (none added yet)';
   showSTab('gen');
   $('mWatch').value = (mo.watch || []).map((w) => `${w.name} = ${w.url}`).join('\n');
+  $('vUrl').value = mo.pveUrl || ''; $('vToken').value = mo.pveToken || ''; $('vSecret').value = '';
+  $('vSecret').placeholder = mo.pveSecretSet ? 'Set (leave blank to keep it)' : 'the secret Proxmox showed once';
+  $('mServices').value = (mo.services || []).join('\n'); $('mRingBatt').value = mo.ringBattery ?? 20; $('mToner').value = mo.tonerPct ?? 10; $('mPrinter').value = mo.printerUrl || '';
   const pg = S.ping || {};
   $('pUrl').value = ''; $('pUrl').placeholder = pg.set ? `Set: ${pg.host} (leave blank to keep it)` : 'https://hc-ping.com/your-check-id';
   $('pEvery').value = String(pg.every || 60); $('pClear').checked = false; $('pClear').closest('label').hidden = !pg.set;
@@ -414,6 +417,8 @@ $('setForm').addEventListener('submit', async (ev) => {
       ping: { url: $('pUrl').value, every: +$('pEvery').value, clear: $('pClear').checked },
       monitor: { enabled: $('mOn').checked, every: +$('mEvery').value, to: $('mTo').value, from: $('mFrom').value, password: $('mPw').value, notifyNew: $('mNew').checked, notifyClear: $('mClear').checked,
         weeklyDay: +$('mDay').value, weeklyHour: +$('mHour').value, doorMin: +$('mDoor').value, garageMin: +$('mGarage').value,  diskGb: +$('mDisk').value, watch: $('mWatch').value,
+        pveUrl: $('vUrl').value, pveToken: $('vToken').value, pveSecret: $('vSecret').value, services: $('mServices').value,
+        ringBattery: +$('mRingBatt').value, tonerPct: +$('mToner').value, printerUrl: $('mPrinter').value,
         ducks: Object.fromEntries([...document.querySelectorAll('[data-duck]')].map((c) => [c.dataset.duck, c.checked])) } });
     $('setDlg').close(); say($('msg'), 'Saved.', 'ok'); await load(); loadNet(); loadStatus();
   }

@@ -13,6 +13,9 @@ const os = require('os');
 const tls = require('tls');
 const dns = require('dns');
 const crypto = require('crypto');
+const https = require('https');
+const http = require('http');
+const { execFile } = require('child_process');
 
 const FAST = process.env.LS_MONITOR_FAST === '1';   // tests only: no waiting
 const GRACE = FAST ? 0 : 3 * 60000;           // an alert must last this long before it counts
@@ -33,7 +36,113 @@ const DEFAULTS = {
   weeklyDay: 1, weeklyHour: 8,  // Monday 8:00 (local time); weeklyDay -1 = no weekly summary
   notifyNew: true, notifyClear: true,
   watch: [],             // [{ name, url }] extra web addresses that should answer
+  ducks: {},
+  // Proxmox: API token (Datacenter -> Permissions -> API Tokens; a user with the PVEAuditor role on /)
+  pveUrl: '', pveToken: '', pveSecret: '', pveFingerprint: '',   // the certificate's fingerprint, pinned at first contact
+  services: ['signinator', 'tree-show', 'shairport-sync', 'nqptp', 'caddy'],   // systemd services on this server that must run
+  printerUrl: '', tonerPct: 10,                                   // an HP printer's address (its web page), toner alert level
+  ringBattery: 20,                                                // Ring camera battery alert level (%)
 };
+
+// ---------- https with a pinned certificate (Proxmox's is self-signed) ----------
+function webGet(url, { headers, fingerprint, timeout } = {}) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url), mod = u.protocol === 'https:' ? https : http;
+    const req = mod.request({ hostname: u.hostname, port: u.port || (mod === https ? 443 : 80), path: u.pathname + u.search, method: 'GET',
+      headers: headers || {}, rejectUnauthorized: false, checkServerIdentity: () => undefined, timeout: timeout || 15000 }, (res) => {
+      const cert = mod === https && res.socket.getPeerCertificate ? res.socket.getPeerCertificate() : null;
+      const fp = (cert && cert.fingerprint256) || '';
+      if (fingerprint && fp !== fingerprint) { res.destroy(); return reject(new Error(`its certificate changed (now ${fp.slice(0, 23)}\u2026). If that was you, save the Proxmox settings again to accept it.`)); }
+      let b = '';
+      res.on('data', (d) => { if (b.length < 8e6) b += d; });
+      res.on('end', () => resolve({ status: res.statusCode, body: b, fingerprint: fp }));
+    });
+    req.on('timeout', () => req.destroy(new Error('no answer')));
+    req.on('error', (e) => reject(new Error(e.code === 'ECONNREFUSED' ? 'connection refused' : e.code === 'ENOTFOUND' ? `can\u2019t find ${u.hostname}` : e.message)));
+    req.end();
+  });
+}
+
+// ---------- Proxmox ----------
+async function proxmoxCheck(c, pin) {
+  const base = c.pveUrl.replace(/\/+$/, '');
+  const headers = { Authorization: `PVEAPIToken=${c.pveToken}=${c.pveSecret}` };
+  let fingerprint = c.pveFingerprint;
+  const api = async (p) => {
+    const r = await webGet(base + '/api2/json' + p, { headers, fingerprint });
+    if (!fingerprint && r.fingerprint) { fingerprint = r.fingerprint; pin(fingerprint); }
+    if (r.status === 401) throw new Error('Proxmox refused the token (check the token id and secret)');
+    if (r.status === 403) { const e = new Error('no permission'); e.forbidden = true; throw e; }
+    if (r.status !== 200) throw new Error(`Proxmox answered ${r.status}`);
+    return JSON.parse(r.body).data;
+  };
+  const res = await api('/cluster/resources');
+  const out = { nodes: [], guests: [], storage: [], disks: [], pools: [], failedBackups: [], updates: {}, noUpdatePerm: false };
+  for (const r of res) {
+    if (r.type === 'node') out.nodes.push({ name: r.node, status: r.status, mem: r.mem, maxmem: r.maxmem, disk: r.disk, maxdisk: r.maxdisk, uptime: r.uptime });
+    else if (r.type === 'qemu' || r.type === 'lxc') out.guests.push({ vmid: r.vmid, name: r.name || String(r.vmid), node: r.node, status: r.status, template: !!r.template, kind: r.type === 'qemu' ? 'VM' : 'container' });
+    else if (r.type === 'storage') out.storage.push({ name: r.storage, node: r.node, status: r.status, disk: r.disk, maxdisk: r.maxdisk, shared: !!r.shared });
+  }
+  const tasks = await api('/cluster/tasks').catch(() => []);
+  const cut = Date.now() / 1000 - 3 * 86400;
+  for (const t of tasks || []) {
+    if (t.type === 'vzdump' && t.status && t.status !== 'OK' && (t.endtime || t.starttime) > cut) out.failedBackups.push({ node: t.node, at: (t.endtime || t.starttime) * 1000, status: String(t.status).slice(0, 120), upid: t.upid });
+  }
+  for (const n of out.nodes) {
+    if (n.status !== 'online') continue;
+    const [disks, zfs, apt] = await Promise.all([
+      api(`/nodes/${n.name}/disks/list`).catch(() => []), api(`/nodes/${n.name}/disks/zfs`).catch(() => []),
+      api(`/nodes/${n.name}/apt/update`).catch((e) => { if (e.forbidden) out.noUpdatePerm = true; return null; })]);
+    for (const d of disks || []) out.disks.push({ node: n.name, dev: d.devpath, model: d.model, health: d.health || '', wearout: d.wearout });
+    for (const z of zfs || []) out.pools.push({ node: n.name, name: z.name, health: z.health });
+    if (apt) out.updates[n.name] = apt.length;
+  }
+  return out;
+}
+
+// ---------- this server: systemd services and apt updates ----------
+function run(cmd, args, ms) {
+  return new Promise((resolve) => execFile(cmd, args, { timeout: ms || 20000, env: Object.assign({}, process.env, { LC_ALL: 'C' }) },
+    (err, stdout, stderr) => resolve({ err, out: String(stdout || ''), stderr: String(stderr || '') })));
+}
+let aptCache = { at: 0, n: null };
+async function serverCheck(services) {
+  const out = { services: {}, aptUpdates: null };
+  if (services.length) {
+    const r = await run('systemctl', ['is-active', ...services]);
+    const lines = r.out.trim().split('\n');
+    services.forEach((svc, i) => { out.services[svc] = (lines[i] || 'unknown').trim(); });
+  }
+  if (Date.now() - aptCache.at > 3600000) {                     // once an hour: it reads the package cache (apt's own timer refreshes it)
+    const r = await run('apt', ['list', '--upgradable'], 30000);
+    if (!r.err) aptCache = { at: Date.now(), n: r.out.split('\n').filter((l) => /\/.*\[upgradable/.test(l)).length };
+  }
+  out.aptUpdates = aptCache.n;
+  return out;
+}
+
+// ---------- HP printer (its web server's status XML) ----------
+const PRINTER_FINE = new Set(['ready', 'processing', 'initializing', 'inpowersave', 'sleep', 'standby', 'warmup', 'calibrating', 'canceling', 'cancelling', 'shuttingdown', 'cartridgelow', 'closedoorordoorsclosed', 'busy']);
+async function printerCheck(url) {
+  const base = url.replace(/\/+$/, '');
+  const get = async (p) => { const r = await webGet(base + p, { timeout: 8000 }); if (r.status !== 200) throw new Error('HTTP ' + r.status); return r.body; };
+  const [status, cons] = await Promise.all([get('/DevMgmt/ProductStatusDyn.xml'), get('/DevMgmt/ConsumableConfigDyn.xml').catch(() => '')]);
+  const cats = [...status.matchAll(/<\w+:StatusCategory>([^<]+)</g)].map((m) => m[1].trim());
+  const words = [...status.matchAll(/<\w+:LocString[^>]*>([^<]+)</g)].map((m) => m[1].trim());
+  // alerts: <ad:ProductStatusAlertID>jamInPrinter</…> with <ad:Severity>Error|Warning|Info</…>
+  const ids = [...status.matchAll(/<\w+:ProductStatusAlertID>([^<]+)</g)].map((m) => m[1].trim());
+  const sev = [...status.matchAll(/<\w+:Severity>([^<]+)</g)].map((m) => m[1].trim());
+  const errors = ids.filter((id, i) => /^(error|critical)$/i.test(sev[i] || '') && !/genuine|cartridge/i.test(id));
+  const toner = [];
+  for (const block of cons.split('<ccdyn:ConsumableInfo>').slice(1)) {
+    const g = (tag) => (new RegExp(`<dd:${tag}>([^<]*)<`).exec(block) || [])[1];
+    const pct = g('ConsumablePercentageLevelRemaining');
+    if (g('ConsumableTypeEnum') === 'toner' && pct !== undefined) toner.push({ part: g('ProductNumber') || g('ConsumableSelectibilityNumber') || 'toner', pct: +pct, color: (g('MarkerColor') || '').toLowerCase() });
+  }
+  const bad = cats.filter((x) => !PRINTER_FINE.has(x.toLowerCase())).concat(errors);
+  const nice = (x) => x.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+  return { cats, words, toner, problem: bad.length ? (words.find((w) => !/standby|ready|sleep|power save/i.test(w)) || bad.map(nice).join(', ')) : '' };
+}
 
 // ---------- email (SMTP over TLS) ----------
 function smtpSend(o) {
@@ -97,7 +206,12 @@ let duckGif = null;
 try { duckGif = fs.readFileSync(require('path').join(__dirname, 'public', 'duck.gif')); } catch (e) { /* no duck: plain email */ }
 
 // ---------- the checks ----------
-const HA_TEMPLATE = `{%- set ns = namespace(locks=[], garage=[], autos=[], batt=[], upd=[], dead=[], seen=[]) -%}
+const HA_TEMPLATE = `{%- set ns = namespace(locks=[], garage=[], autos=[], batt=[], upd=[], dead=[], seen=[], ring=[], rseen=[]) -%}
+{%- for e in integration_entities('ring') -%}{%- set d = device_id(e) -%}
+{%- if d and d not in ns.rseen -%}{%- set ns.rseen = ns.rseen + [d] -%}{%- set ents = device_entities(d) -%}
+{%- set bl = ents | select('match', 'sensor\\.') | select('is_state_attr', 'device_class', 'battery') | map('states') | select('is_number') | map('float') | list -%}
+{%- set ns.ring = ns.ring + [{'id': d, 'name': device_attr(d, 'name_by_user') or device_attr(d, 'name'), 'area': area_name(d), 'model': device_attr(d, 'model'), 'avail': ents | select('has_value') | list | length > 0, 'batt': (bl | min) if bl else -1}] -%}
+{%- endif -%}{%- endfor -%}
 {%- for s in states.lock -%}{%- if s.state in ['unlocked', 'open', 'opening', 'unlocking', 'jammed'] -%}
 {%- set ns.locks = ns.locks + [{'id': s.entity_id, 'name': s.name, 'state': s.state, 'since': as_timestamp(s.last_changed, 0)}] -%}{%- endif -%}{%- endfor -%}
 {%- for s in states.binary_sensor -%}{%- set dc = s.attributes.get('device_class') -%}
@@ -118,7 +232,7 @@ const HA_TEMPLATE = `{%- set ns = namespace(locks=[], garage=[], autos=[], batt=
 {%- set ents = device_entities(d) -%}{%- if ents | select('has_value') | list | length == 0 -%}
 {%- set ns.dead = ns.dead + [{'id': d, 'name': device_attr(d, 'name_by_user') or device_attr(d, 'name'), 'area': area_name(d), 'since': as_timestamp(s.last_changed, 0)}] -%}
 {%- endif -%}{%- endif -%}{%- endif -%}{%- endfor -%}
-{{ {'locks': ns.locks, 'garage': ns.garage, 'autos': ns.autos, 'batt': ns.batt, 'upd': ns.upd, 'dead': ns.dead} | to_json }}`;
+{{ {'ring': ns.ring, 'locks': ns.locks, 'garage': ns.garage, 'autos': ns.autos, 'batt': ns.batt, 'upd': ns.upd, 'dead': ns.dead} | to_json }}`;
 
 async function haCheck(url, token) {
   const r = await fetch(url.replace(/\/+$/, '') + '/api/template', {
@@ -209,7 +323,22 @@ function adviceFor(f, devices) {
     const svc = /:8080\b/.test(u) ? 'signinator' : /:8100\b/.test(u) ? 'tree-show' : /:8110\b/.test(u) ? 'licketysplit' : '';
     return svc ? `On this server: "sudo systemctl restart ${svc}", then "journalctl -u ${svc} -n 50" if it stops again.` : 'Open the address in a browser; restart the service or device behind it.';
   }
+  if (id === 'pve') return 'Open the Proxmox web page (port 8006). If it doesn\u2019t load, the host is down or off the network: check its power and console.';
+  if (id.startsWith('pvenode:')) return 'The node is offline: check the machine\u2019s power and network. Its VMs and containers are down with it.';
+  if (id.startsWith('pveguest:')) return 'It was running and stopped. Proxmox \u2192 the VM/container \u2192 Start; its Task History and Syslog say why it stopped. If you stopped it on purpose, press Ignore.';
+  if (id.startsWith('pvedisk:')) return 'The drive reports failing SMART health: back up what is on it and replace it soon. Proxmox \u2192 node \u2192 Disks shows the details.';
+  if (id.startsWith('pvezfs:')) return 'A ZFS pool is degraded or faulted: Proxmox \u2192 node \u2192 Disks \u2192 ZFS, then "zpool status" on the node to see which drive. Replace it and resilver.';
+  if (id.startsWith('pvestore:')) return 'Free space: delete old backups and unused ISOs/templates (Proxmox \u2192 the storage \u2192 Content), or prune snapshots.';
+  if (id.startsWith('pvemem:')) return 'The node is nearly out of RAM: lower a VM\u2019s memory, enable ballooning, or stop something you don\u2019t need.';
+  if (id.startsWith('pvebackup:')) return 'Proxmox \u2192 Datacenter \u2192 Backup \u2192 the job \u2192 Run now, and read the task log (usually the backup storage is full or unreachable).';
+  if (id.startsWith('svc:')) { const n = id.slice(4); return `On this server: "sudo systemctl restart ${n}", then "journalctl -u ${n} -n 50" to see why it stopped.`; }
+  if (id.startsWith('ringbatt:')) return 'Charge or swap the camera\u2019s battery (Ring app \u2192 the device \u2192 Device Health shows the level). A Stick Up Cam has a removable pack; the doorbell comes off its plate with the security screw.';
+  if (id.startsWith('ring:')) return 'The camera is offline: check its battery (or power) and Wi-Fi in the Ring app \u2192 Device Health. Power-cycle it (hold the setup button) if the battery is fine.';
+  if (id.startsWith('printertoner:')) return 'Order a new cartridge (the part number is in the message) and swap it when it gets to a few percent.';
+  if (id.startsWith('printer:')) return 'Look at the printer\u2019s display: a jam, open door or empty tray. Its web page (the address in Settings) shows the same status.';
   if (id.startsWith('upd:') || id.startsWith('piholeupd:')) {
+    if (/^Update: Proxmox/.test(t)) return 'Proxmox \u2192 the node \u2192 Updates \u2192 Refresh, then Upgrade (or "apt update && apt dist-upgrade" on the node). Kernel updates need a reboot.';
+    if (id.startsWith('aptupd:')) return 'On this server: "sudo apt update && sudo apt upgrade". Reboot if it says a new kernel was installed.';
     if (/pi-?hole/i.test(t)) return 'On the Pi: "sudo pihole -up" (all parts at once; DNS pauses for a moment). In Docker: pull the new image and recreate the container.';
     if (/home assistant (core|operating system|supervisor)/i.test(t)) return 'Home Assistant → Settings → System → Updates → Install (it offers a backup first: take it).';
     if (/esphome/i.test(t)) return 'ESPHome dashboard (Home Assistant add-on) → the device → Install → Wirelessly.';
@@ -224,7 +353,9 @@ function adviceFor(f, devices) {
 function duckOf(id) {
   const k = id.split(':')[0];
   return { lock: 'locks', garage: 'garage', auto: 'automations', ha: 'ha', pihole: 'pihole', piholeblk: 'pihole', piholegrav: 'pihole',
-    piholeapi: 'pihole', upd: 'updates', piholeupd: 'updates', dev: 'devices', web: 'watch', disk: 'disk', disklow: 'disk' }[k] || k;
+    piholeapi: 'pihole', upd: 'updates', piholeupd: 'updates', dev: 'devices', web: 'watch', disk: 'disk', disklow: 'disk',
+    pve: 'proxmox', pvenode: 'proxmox', pveguest: 'proxmox', pvedisk: 'proxmox', pvezfs: 'proxmox', pvestore: 'proxmox', pvemem: 'proxmox', pvebackup: 'proxmox', pveupd: 'updates',
+    svc: 'server', aptupd: 'updates', ring: 'ring', ringbatt: 'ring', printer: 'printer', printertoner: 'printer' }[k] || k;
 }
 
 // ---------- the monitor ----------
@@ -242,6 +373,7 @@ function createMonitor(deps) {
 
   async function gather(force) {
     const c = cfg(), net = deps.net(), now = Date.now(), found = [];
+    let haAnswer = null;
     const add = (id, sev, cat, title, detail, since, grace) => found.push({ id, sev, cat, title, detail: detail || '', since: since || 0, grace: grace == null ? GRACE : grace });
 
     // Pi-hole first (every 5 minutes, or now when asked): its own answer on updates beats Home Assistant's
@@ -254,6 +386,7 @@ function createMonitor(deps) {
     if (net.haUrl && net.haToken) {
       try {
         const h = await haCheck(net.haUrl, net.haToken);
+        haAnswer = h;
         check('Home Assistant', true, `${h.locks.length} unlocked · ${h.garage.length} garage open · ${h.autos.length} automations broken · ${h.upd.length} updates`);
         // locks: unlocked longer than doorMin minutes; jammed at once (door sensors aren't watched: doors may stand open)
         for (const l of h.locks || []) {
@@ -288,6 +421,67 @@ function createMonitor(deps) {
       if (p.gravityAt && now - p.gravityAt > 8 * 86400000) add('piholegrav', 'notice', 'Pi-hole', `Pi-hole block lists last updated ${mins(now - p.gravityAt)} ago`, 'Tools → Update Gravity', 0, 0);
       for (const u of p.updates || []) add('piholeupd:' + u.part, 'notice', 'Updates', `Update: Pi-hole ${u.part}`, `${u.loc} → ${u.rem}`, 0, 0);
       check('Pi-hole', !!p.dnsOk && !pihole.err, pihole.err || (p.dnsOk ? `DNS OK · blocking ${p.blocking || '?'}` : 'DNS not answering'));
+    }
+
+    // Ring cameras (from Home Assistant's answer above)
+    if (haAnswer) {
+      for (const r of haAnswer.ring || []) {
+        const where = [r.area, r.model].filter(Boolean).join(' · ');
+        if (!r.avail) add('ring:' + r.id, 'alert', 'Ring', `${r.name} is offline`, where);
+        else if (r.batt >= 0 && r.batt <= c.ringBattery) add('ringbatt:' + r.id, 'alert', 'Ring', `${r.name} battery at ${Math.round(r.batt)}%`, where, 0, 0);
+      }
+      check('Ring cameras', true, `${(haAnswer.ring || []).length} cameras, ${(haAnswer.ring || []).filter((r) => !r.avail).length} offline`);
+    }
+
+    // Proxmox
+    if (c.pveUrl && c.pveToken && c.pveSecret) {
+      try {
+        const p = await proxmoxCheck(c, (fp) => deps.setCfg && deps.setCfg({ pveFingerprint: fp }));
+        const running = {};
+        for (const n of p.nodes) {
+          if (n.status !== 'online') { add('pvenode:' + n.name, 'alert', 'Proxmox', `Proxmox node ${n.name} is offline`, ''); continue; }
+          if (n.maxmem && n.mem / n.maxmem > 0.95) add('pvemem:' + n.name, 'alert', 'Proxmox', `${n.name} is nearly out of RAM`, `${Math.round(100 * n.mem / n.maxmem)}% used`, 0, 0);
+          if (n.maxdisk && n.disk / n.maxdisk > 0.9) add('pvestore:' + n.name + ':root', 'alert', 'Proxmox', `${n.name}: system disk ${Math.round(100 * n.disk / n.maxdisk)}% full`, '', 0, 0);
+          if (p.updates[n.name]) add('pveupd:' + n.name, 'notice', 'Updates', `Update: Proxmox ${n.name}`, `${p.updates[n.name]} package${p.updates[n.name] > 1 ? 's' : ''}`, 0, 0);
+        }
+        for (const g of p.guests) {
+          if (g.template) continue;
+          if (g.status === 'running') running[g.vmid] = g.name;
+          else if (st.pveRunning && st.pveRunning[g.vmid]) add('pveguest:' + g.vmid, 'alert', 'Proxmox', `${g.kind} ${g.name} stopped`, `${g.vmid} on ${g.node} · was running`, 0, 0);
+        }
+        // guests that just stopped stay "expected running" (so the alert persists until they run again or are ignored)
+        st.pveRunning = Object.assign({}, st.pveRunning || {}, running);
+        for (const id of Object.keys(st.pveRunning)) if (!p.guests.some((g) => String(g.vmid) === String(id))) delete st.pveRunning[id];
+        for (const sto of p.storage) if (sto.status === 'available' && sto.maxdisk && sto.disk / sto.maxdisk > 0.9)
+          add('pvestore:' + (sto.shared ? '' : sto.node + ':') + sto.name, 'alert', 'Proxmox', `Storage ${sto.name} ${Math.round(100 * sto.disk / sto.maxdisk)}% full`, sto.shared ? '' : 'on ' + sto.node, 0, 0);
+        for (const d of p.disks) if (d.health && !/^(PASSED|OK|UNKNOWN)$/i.test(d.health))
+          add('pvedisk:' + d.node + ':' + d.dev, 'alert', 'Proxmox', `Drive ${d.dev} on ${d.node}: SMART ${d.health}`, d.model || '', 0, 0);
+        for (const z of p.pools) if (z.health && z.health !== 'ONLINE') add('pvezfs:' + z.node + ':' + z.name, 'alert', 'Proxmox', `ZFS pool ${z.name} is ${z.health}`, 'on ' + z.node, 0, 0);
+        for (const b of p.failedBackups) add('pvebackup:' + b.upid, 'alert', 'Proxmox', `Backup failed on ${b.node}`, `${new Date(b.at).toLocaleString()} · ${b.status}`, b.at, 0);
+        check('Proxmox', true, `${p.nodes.filter((n) => n.status === 'online').length}/${p.nodes.length} nodes · ${Object.keys(running).length} running` + (p.noUpdatePerm ? ' · updates: no permission' : ''));
+      } catch (e) {
+        check('Proxmox', false, e.message);
+        add('pve', 'alert', 'Proxmox', 'Proxmox isn\u2019t answering', e.message);
+      }
+    }
+
+    // this server
+    try {
+      const sv = await serverCheck(c.services || []);
+      const down = Object.entries(sv.services).filter(([, state]) => state !== 'active');
+      for (const [name, state] of down) add('svc:' + name, 'alert', 'Server', `${name} isn\u2019t running`, `${state} on ${os.hostname()}`);
+      if (sv.aptUpdates) add('aptupd:' + os.hostname(), 'notice', 'Updates', `Update: ${os.hostname()} (this server)`, `${sv.aptUpdates} package${sv.aptUpdates > 1 ? 's' : ''}`, 0, 0);
+      check('Services on ' + os.hostname(), !down.length, down.length ? down.map(([n]) => n).join(', ') + ' down' : `${Object.keys(sv.services).length} running`);
+    } catch (e) { check('Services on ' + os.hostname(), false, e.message); }
+
+    // printer
+    if (c.printerUrl) {
+      try {
+        const pr = await printerCheck(c.printerUrl);
+        if (pr.problem) add('printer:status', 'alert', 'Printer', `Printer: ${pr.problem}`, pr.cats.join(', '), 0, 0);
+        for (const t of pr.toner) if (t.pct <= c.tonerPct) add('printertoner:' + t.part, 'alert', 'Printer', `Printer toner at ${t.pct}%`, `${t.color ? t.color + ' ' : ''}cartridge ${t.part}`, 0, 0);
+        check('Printer', !pr.problem, pr.toner.map((t) => `toner ${t.pct}%`).join(', ') + (pr.words[0] ? ' · ' + pr.words[0] : ''));
+      } catch (e) { check('Printer', true, 'off or not answering (' + e.message + ')'); }   // a printer that's switched off is normal
     }
 
     // your devices + watched web addresses (down = 3 misses in a row)

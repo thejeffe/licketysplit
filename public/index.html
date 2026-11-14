@@ -107,6 +107,13 @@
    </div>
    <label class="chk"><input id="nPiNames" type="checkbox">Give every device without a DNS name a name in Pi-hole</label>
    <label>Name ending<input id="nPiSuffix" type="text" autocapitalize="off" spellcheck="false" placeholder="lan, or home.example.com" style="max-width:320px"></label>
+   <h3>Proxmox</h3>
+   <div class="two">
+    <label>Address<input id="vUrl" type="text" autocapitalize="off" spellcheck="false" placeholder="https://proxmox.local:8006"></label>
+    <label>Token id<input id="vToken" type="text" autocapitalize="off" spellcheck="false" placeholder="licketysplit@pve!ducks"></label>
+   </div>
+   <label>Token secret<input id="vSecret" type="password" autocomplete="off" spellcheck="false"></label>
+   <p class="note" id="vNote">In Proxmox: Datacenter → Permissions → Users: add <i>licketysplit</i> (realm pve) with the <i>PVEAuditor</i> role on <i>/</i>; then API Tokens: add one for that user with <i>Privilege Separation</i> off. Its self-signed certificate is pinned at first contact.</p>
    <p class="note">Each name stays with its device (by MAC address) when its address changes, and an address reused by another device loses the old name at once. Lickety Split only changes names it made; ones you remove stay removed.</p>
   </div>
 
@@ -142,6 +149,10 @@
     <label class="duck"><input type="checkbox" data-duck="updates"><span><b>Updates to install</b><small>Home Assistant, Pi-hole, ESPHome, Matter and other devices</small></span><em data-dstat="updates"></em></label>
     <label class="duck"><input type="checkbox" data-duck="devices"><span><b>Your devices</b><small id="duckDevs">The Firmware tab's devices answer</small></span><em data-dstat="devices"></em></label>
     <label class="duck"><input type="checkbox" data-duck="watch"><span><b>Watched addresses</b><small>These answer (one per line: Name = address)</small><textarea id="mWatch" rows="3" spellcheck="false" placeholder="Signinator = http://localhost:8080/"></textarea></span><em data-dstat="watch"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="proxmox"><span><b>Proxmox</b><small>Nodes online, VMs and containers that stopped, drive and ZFS health, storage over 90%, failed backups (set it up on the Network tab)</small></span><em data-dstat="proxmox"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="server"><span><b>This server</b><small>These services are running (one per line)</small><textarea id="mServices" rows="3" spellcheck="false" placeholder="signinator"></textarea></span><em data-dstat="server"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="ring"><span><b>Ring cameras</b><small>Offline, or battery at or below <input id="mRingBatt" type="number" min="1" max="90" inputmode="numeric"> % (from Home Assistant)</small></span><em data-dstat="ring"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="printer"><span><b>Printer</b><small>Jams, open doors, empty trays; toner at or below <input id="mToner" type="number" min="1" max="50" inputmode="numeric"> %</small><input id="mPrinter" type="text" autocapitalize="off" spellcheck="false" placeholder="http://192.168.1.60 (an HP printer's web address)" style="margin-top:4px"></span><em data-dstat="printer"></em></label>
     <label class="duck"><input type="checkbox" data-duck="disk"><span><b>Disk space</b><small>This server has less than <input id="mDisk" type="number" min="0" max="500" step="0.5" inputmode="decimal"> GB free</small></span><em data-dstat="disk"></em></label>
    </div>
   </div>

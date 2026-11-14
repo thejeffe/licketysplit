@@ -428,12 +428,14 @@ function cleanPing(b) {
 const monitor = monitorLib.createMonitor({
   cfg: () => conf.monitor, net: () => conf.net, devices: () => conf.devices, probe, dataDir: CFG.dataDir, log,
   netResult: () => netResult, pingSummary: () => (conf.ping.url ? Object.assign(publicPing(), pingSummary()) : null),
+  setCfg: (patch) => { Object.assign(conf.monitor, patch); saveConf(); },
 });
 function publicMonitor() {
   const m = conf.monitor;
   return { enabled: m.enabled, every: m.every, ducks: m.ducks || {}, to: m.to, from: m.from, passwordSet: !!m.password, doorMin: m.doorMin, garageMin: m.garageMin,
     battery: m.battery, diskGb: m.diskGb, weeklyDay: m.weeklyDay, weeklyHour: m.weeklyHour, notifyNew: m.notifyNew, notifyClear: m.notifyClear,
-    watch: m.watch };
+    watch: m.watch, pveUrl: m.pveUrl, pveToken: m.pveToken, pveSecretSet: !!m.pveSecret, pvePinned: !!m.pveFingerprint,
+    services: m.services || [], printerUrl: m.printerUrl, tonerPct: m.tonerPct, ringBattery: m.ringBattery };
 }
 function cleanMonitor(b) {
   const m = Object.assign({}, conf.monitor);
@@ -444,9 +446,29 @@ function cleanMonitor(b) {
   if (typeof b.password === 'string' && b.password.trim()) m.password = b.password.replace(/\s+/g, '').slice(0, 100);   // app passwords are shown with spaces
   const num = (k, lo, hi) => { if (k in b) { const v = Math.round(+b[k]); if (!(v >= lo && v <= hi)) throw new Error(`${k} should be ${lo}\u2013${hi}`); m[k] = v; } };
   if (b.ducks && typeof b.ducks === 'object') {
-    const keys = ['locks', 'garage', 'automations', 'ha', 'pihole', 'updates', 'devices', 'watch', 'disk'];
+    const keys = ['locks', 'garage', 'automations', 'ha', 'pihole', 'updates', 'devices', 'watch', 'disk', 'proxmox', 'server', 'ring', 'printer'];
     m.ducks = Object.fromEntries(keys.map((k) => [k, b.ducks[k] !== false]));
   }
+  if ('pveUrl' in b) {
+    const v = String(b.pveUrl || '').trim().replace(/\/+$/, '');
+    if (v && !/^https?:\/\/[^\s/]+(:\d+)?$/.test(v)) throw new Error('Proxmox\u2019s address should look like https://proxmox.local:8006');
+    if (v !== m.pveUrl) m.pveFingerprint = '';              // a new host: pin its certificate afresh
+    m.pveUrl = v;
+  }
+  if ('pveToken' in b) {
+    const v = String(b.pveToken || '').trim();
+    if (v && !/^[\w.-]+@[\w.-]+![\w.-]+$/.test(v)) throw new Error('The token id looks like user@pve!tokenname');
+    m.pveToken = v;
+  }
+  if (typeof b.pveSecret === 'string' && b.pveSecret.trim()) { m.pveSecret = b.pveSecret.trim().slice(0, 100); m.pveFingerprint = ''; }
+  if (b.pveClear) { m.pveSecret = ''; m.pveFingerprint = ''; }
+  if ('services' in b) m.services = String(b.services || '').split(/[\n,]+/).map((x) => x.trim()).filter((x) => /^[\w@.:-]{1,80}$/.test(x)).slice(0, 40);
+  if ('printerUrl' in b) {
+    const v = String(b.printerUrl || '').trim().replace(/\/+$/, '');
+    if (v && !/^https?:\/\/[^\s/]+(:\d+)?$/.test(v)) throw new Error('The printer\u2019s address should look like http://192.168.1.60');
+    m.printerUrl = v;
+  }
+  num('tonerPct', 1, 50); num('ringBattery', 1, 90);
   if ('every' in b) m.every = [1, 2, 5, 10, 15, 30].includes(+b.every) ? +b.every : 5;
   num('doorMin', 1, 1440); num('garageMin', 1, 1440); num('battery', 1, 90); num('weeklyDay', -1, 6); num('weeklyHour', 0, 23);
   if ('diskGb' in b) { const v = Math.round(+b.diskGb * 10) / 10; if (!(v >= 0 && v <= 500)) throw new Error('diskGb should be 0\u2013500'); m.diskGb = v; }
