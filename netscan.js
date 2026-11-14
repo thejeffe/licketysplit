@@ -19,7 +19,7 @@ const KEEP_DAYS = 30;            // forget a device not seen for this long
 const OUI_URL = 'https://www.wireshark.org/download/automated/data/manuf', OUI_MAX_AGE = 30 * 86400000;
 
 // names that are really IDs (Matter, Spotify Connect, UUIDs, bare MACs, "none-4") say nothing
-const JUNK_NAME = /^(?:[0-9a-f]{12,}(?:-[0-9a-f]+)*|[0-9a-f]{8}-[0-9a-f-]{20,}|none(?:-\d+)?|linux(?:-\d+)?|SpotifyConnect(?: #\d+| \(\d+\))?|Spotify Desktop Launcher|esp32-[0-9a-f]+|amzn\.dmgr:.*|(?:ip-)?\d{1,3}(?:[-.]\d{1,3}){3}(?:\..*)?)$/i;
+const JUNK_NAME = /^(?:[0-9a-f]{12,}(?:-[0-9a-f]+)*|[0-9a-f]{8}-[0-9a-f-]{20,}|none(?:-\d+)?|linux(?:-\d+)?|SpotifyConnect(?: #\d+| \(\d+\))?|Spotify Desktop Launcher|esp32-[0-9a-f]+|amzn\.dmgr:.*|Spotify Group Session.*|[^:]*:[^:]*|(?:ip-)?\d{1,3}(?:[-.]\d{1,3}){3}(?:\..*)?)$/i;
 const usable = (n) => !!n && !JUNK_NAME.test(String(n).trim());
 
 // ---------- MAC address makers (Wireshark's list, kept in the data folder, refreshed monthly) ----------
@@ -455,6 +455,8 @@ async function scan(opts) {
     const mac = arp[ip] || (self && ip === self.ip ? self.mac : '');
     const pe = (pi.byIp && pi.byIp[ip]) || (mac && pi.byMac && pi.byMac[mac]) || null;
     const dnsNames = [...new Set([rdns.names[ip], ...((pe && pe.records) || []), ...((pe && pe.names) || []), pe && pe.lease].filter(Boolean))];
+    const ours = new Set(opts.managedHosts || []);                      // names Lickety Split itself put in Pi-hole: not a source
+    const realDns = dnsNames.filter((n) => !ours.has(n));
     const dnsName = dnsNames[0] || '';
     const short = (n) => n && n.split('.')[0];
     const md = mdnsFacts(mdns.byIp[ip]), w = web[ip] || {};
@@ -474,7 +476,7 @@ async function scan(opts) {
       if (!w.name && model) w.fallbackName = `Kasa ${model} ${(td && KASA_KIND[td.type]) || 'device'}`;
     }
     const name = (isSelf && os.hostname()) || [hd && hd.name, w.name].find(usable) || (isHa && 'Home Assistant')
-      || [md.name, trk && trk.name, pe && pe.lease, ...dnsNames.map(short)].find(usable) || md.host || [trk && trk.host].find(usable)
+      || [md.name, trk && trk.name, pe && pe.lease, ...realDns.map(short)].find(usable) || md.host || [trk && trk.host].find(usable)
       || w.fallbackName || '';
     const desc = [];
     if (isSelf) desc.push('This server (Lickety Split)');
@@ -494,12 +496,12 @@ async function scan(opts) {
     const upd = updateWay({ w, md, hd, maker, isHa, ups: (hd && updByDev[hd.id]) || (isHa ? haSelfUpd : []) });
     const matter = !!(md.matter || md.thread || (hd && (hd.doms || []).some((x) => x === 'matter' || x === 'thread')));
     const brand = brandOf((hd && hd.maker) || maker);
-    const home = !isSelf && !isHa && (HOME_BRAND.test(brand) || (md.kinds || []).some((k) => HOME_KINDS.includes(k))
-      || !!(hd && (hd.doms || []).some((x) => HOME_DOMAINS.includes(x))));
+    const homeDomain = !!(hd && (hd.doms || []).some((x) => HOME_DOMAINS.includes(x)));
     return {
       key: mac || ip, ip, mac, name, generic: !!(w.fallbackName && name === w.fallbackName), dns: dnsName, dnsAll: dnsNames, mdns: md.mdnsHost || '', area: (hd && hd.area) || '', maker, brand,
       desc: desc.join(' · '), inHa: !!hd, fw: w.fw || '', version: w.version || '', web: answer[ip] === 'open',
-      matter, thread: !!md.thread, update: upd, group: groupOf(w.fw, matter, upd, isHa, home),
+      matter, thread: !!md.thread, update: upd,
+      group: isSelf ? 'infra' : groupOf({ fw: w.fw, matter, upd, isHa, isSelf, brand, maker, kinds: md.kinds || [], name, model: (hd && hd.model) || md.model || '', inHa: !!hd, dnsName, homeDomain, title: w.title }),
       queries: (pe && pe.queries) || 0, lastQuery: (pe && pe.lastQuery) || 0,
     };
   });
@@ -573,7 +575,7 @@ function planNames(res, opts) {
   const realBase = (h) => { const b = h.name && !h.generic ? slug(h.name) : ''; return b && !/^(unknown|phone-or-computer)$/.test(b) ? b : ''; };
   const fallbackBase = (h) => {
     const tag = h.mac.replace(/:/g, '').slice(-4);
-    const what = h.generic ? slug(h.name.replace(/^Kasa /, 'kasa ')) : h.brand ? slug(h.brand.replace(/ \(.*\)$/, '')) : 'device';
+    const what = h.generic ? slug(h.name.replace(/^Kasa /, 'kasa ')) : h.brand ? slug(h.brand.replace(/ \(.*\)$/, '')).split('-').slice(0, 2).join('-') : 'device';
     return `${what || 'device'}-${tag}`;
   };
   // 1. records we already have: keep the name, follow the device
@@ -582,9 +584,13 @@ function planNames(res, opts) {
     const h = byMac[m.mac];
     if (h) {
       if (hasOwnDns(h)) continue;                                   // it has a real DNS name now
-      // a placeholder name is replaced once the device has a real one
-      const upgrade = m.fallback && !custom(m.mac) && realBase(h);
-      if (upgrade) continue;                                        // (named fresh in step 2)
+      // a machine-made name follows the device: a real name replaces a placeholder, a renamed device gets its new
+      // name, a placeholder that no longer fits (the device's maker/name changed) is remade. Custom names stay.
+      if (!custom(m.mac)) {
+        const want = realBase(h) || fallbackBase(h);
+        const have = m.host.slice(0, -(suffix.length + 1)).replace(/-\d+$/, '');
+        if (want && want !== have && want !== m.host.slice(0, -(suffix.length + 1))) continue;   // (named fresh in step 2)
+      }
       take({ mac: m.mac, ip: h.ip, host: custom(m.mac) || m.host, seen: now, device: h.name, fallback: !!m.fallback && !custom(m.mac) });
     } else if (macAt[m.ip] && macAt[m.ip] !== m.mac) continue;      // its address belongs to another device now
     else if (now - (m.seen || 0) < AWAY_KEEP) take(Object.assign({}, m, custom(m.mac) ? { host: custom(m.mac) } : {}));
@@ -665,10 +671,10 @@ function updateWay({ w, md, hd, maker, isHa, ups }) {
   return null;
 }
 // home automation: plugs, switches, thermostats, sensors, cameras… (grouped by maker on the page)
-const HOME_BRAND = /^(TP-Link|Belkin|Wemo|ecobee|Ring|Orbit|Midea|Signify|Philips|Lutron|Wyze|Tuya|Shelly|Sonoff|ITEAD|Meross|Govee|LIFX|Nanoleaf|Chamberlain|SimpliSafe|Arlo|Eufy|August|Yale|Rachio|Sense|Emporia|iRobot|Roborock|Ecovacs|Leviton|Jasco|Aqara|Lumi|Broadlink|SwitchBot|Mysa|Nest|Honeywell|Resideo|Sensibo|Rinnai|Hunter Douglas|Lockly|Kwikset|Schlage|MyQ|Konnected|Ezviz|Reolink|Amcrest|Hubitat|SmartThings|Insteon|Z-Wave|Zooz|Inovelli|Third Reality|Wiz)\b/i;
+const HOME_BRAND = /^(Sub-Zero|LG appliance|Home Decorators|Bilian|Espressif|TP-Link|Belkin|Wemo|ecobee|Ring|Orbit|Midea|Signify|Philips|Lutron|Wyze|Tuya|Shelly|Sonoff|ITEAD|Meross|Govee|LIFX|Nanoleaf|Chamberlain|SimpliSafe|Arlo|Eufy|August|Yale|Rachio|Sense|Emporia|iRobot|Roborock|Ecovacs|Leviton|Jasco|Aqara|Lumi|Broadlink|SwitchBot|Mysa|Nest|Honeywell|Resideo|Sensibo|Rinnai|Hunter Douglas|Lockly|Kwikset|Schlage|MyQ|Konnected|Ezviz|Reolink|Amcrest|Hubitat|SmartThings|Insteon|Z-Wave|Zooz|Inovelli|Third Reality|Wiz)\b/i;
 const HOME_KINDS = ['HomeKit', 'Shelly', 'Philips Hue'];
 const HOME_DOMAINS = ['tplink', 'tplink_omada', 'wemo', 'ecobee', 'ring', 'hue', 'lutron_caseta', 'shelly', 'tuya', 'meross', 'govee', 'lifx',
-  'nanoleaf', 'myq', 'rachio', 'roborock', 'wiz', 'switchbot', 'homekit_controller', 'kasa', 'midea_ac', 'august', 'yale', 'nest', 'mysa', 'bhyve'];
+  'nanoleaf', 'myq', 'rachio', 'roborock', 'wiz', 'switchbot', 'homekit_controller', 'kasa', 'midea_ac', 'august', 'yale', 'nest', 'mysa', 'bhyve', 'openhasp', 'subzero', 'lg_thinq', 'smartthings'];
 function brandOf(m) {
   m = String(m || '').trim();
   if (!m || m === 'private address') return '';
@@ -678,13 +684,32 @@ function brandOf(m) {
   if (/^(signify|philips lighting)/i.test(m)) return 'Philips Hue';
   if (/^orbit/i.test(m)) return 'Orbit B-hyve';
   if (/^ring\b/i.test(m)) return 'Ring';
+  if (/^card access/i.test(m)) return 'Sub-Zero / Wolf (Card Access)';
+  if (/^seongji/i.test(m)) return 'LG appliance (Seongji module)';
+  if (/^home decorators/i.test(m)) return 'Home Decorators (Hampton Bay)';
+  if (/^shenzhen bilian/i.test(m)) return 'Bilian Wi-Fi module';
+  if (/^proxmox/i.test(m)) return 'Proxmox';
+  if (/^raspberry/i.test(m)) return 'Raspberry Pi';
+  if (/^hewlett|^hp\b/i.test(m)) return 'HP';
   return m.replace(/[\s,，]*(Technologies|Technology|Systems|International|Electronics|Corporate|Corporation|Inc\b|Co\.?,?\s*Ltd|Co\.|Ltd|LLC|GmbH|Limited)\b.*$/i, '').trim() || m;
 }
-function groupOf(fw, matter, upd, isHa, home) {
+// media players, computers and phones, network gear and servers
+const MEDIA_BRAND = /^(Amazon|Vizio|Nintendo|Roku|Sonos|Sony|Samsung|LG Electronics|Google|Bose|Denon|Yamaha|Onkyo|Hisense|TCL)\b/i;
+const MEDIA_KINDS = ['Google Cast', 'Amazon Fire TV', 'Spotify Connect', 'Roku', 'Android TV', 'Music sharing', 'Sonos'];
+const COMPUTER_BRAND = /^(Intel|Microsoft|Dell|Lenovo|ASUS|Acer|Framework|Liteon|AzureWave|Realtek|Hon Hai|Giga-Byte|Micro-Star)\b/i;
+const INFRA_BRAND = /^(eero|Ubiquiti|Netgear|Synology|QNAP|Proxmox|Raspberry Pi|Cisco|Aruba|MikroTik|HP)\b/i;
+function groupOf(h) {
+  const { fw, matter, upd, isHa, isSelf, brand = '', maker = '', kinds = [], name = '', model = '', inHa, dnsName = '' } = h;
   if (fw) return 'licketysplit';
   if (isHa) return 'updatable';
   if (matter) return 'matter';
-  if (home) return 'home';
+  if (upd && upd.by === 'esphome') return 'updatable';
+  if (HOME_BRAND.test(brand) || kinds.some((k) => HOME_KINDS.includes(k)) || h.homeDomain) return 'home';
+  if (maker === 'private address' || /MacBook|iMac|iPhone|iPad|Laptop|Desktop|PC\b/i.test(name + ' ' + model) || /^Mac\d/.test(model)
+    || COMPUTER_BRAND.test(brand) || (brand === 'Apple' && !/TV|HomePod/i.test(model + name))) return 'computers';
+  if (MEDIA_BRAND.test(brand) || kinds.some((k) => MEDIA_KINDS.includes(k)) || /retropie|kodi|plex|shield|appletv|homepod/i.test(name + model)) return 'media';
+  if (isSelf || INFRA_BRAND.test(brand) || /pi-?hole|proxmox|caddy|unifi|router/i.test(name + ' ' + dnsName + ' ' + (h.title || '')) || kinds.includes('Printer')) return 'infra';
+  if (inHa) return 'home';
   if (upd && upd.by !== 'app') return 'updatable';
   return 'other';
 }

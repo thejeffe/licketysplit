@@ -124,6 +124,9 @@ const GROUPS = [
   { id: 'matter', title: 'Matter and Thread', note: 'Matter devices, Thread border routers and Matter controllers. Matter firmware usually updates through the app that set it up (Home Assistant, Alexa, Google Home, Apple Home).' },
   { id: 'home', title: 'Home automation', note: 'Plugs, switches, thermostats, cameras and other smart-home devices, by maker.' },
   { id: 'updatable', title: 'Updatable another way', note: 'ESPHome, Home Assistant update entities, and devices with their own web updater.' },
+  { id: 'media', title: 'TVs, speakers and games', note: 'Echos, Fire TVs, the TV, consoles and other players. They update themselves.' },
+  { id: 'infra', title: 'Network, servers and printers', note: 'The eeros, the Proxmox hosts, Pi-hole, this server, the printer.' },
+  { id: 'computers', title: 'Phones and computers', note: 'Laptops, phones and tablets (many hide their real address, so they look new each time).' },
   { id: 'other', title: 'Everything else', note: 'Phones, computers, plugs, speakers… with how they get updates, where that\u2019s known.' },
 ];
 const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; };

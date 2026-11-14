@@ -265,7 +265,8 @@ function publicNet() {
 function scanNetwork() {
   if (netRun) return netRun;
   netRun = netscan.scan({ subnet: conf.net.subnet, dns: conf.net.dns, haUrl: conf.net.haUrl, haToken: conf.net.haToken,
-    piholeUrl: conf.net.piholeUrl, piholePassword: conf.net.piholePassword, dataDir: CFG.dataDir })
+    piholeUrl: conf.net.piholeUrl, piholePassword: conf.net.piholePassword, dataDir: CFG.dataDir,
+    managedHosts: (conf.net.piholeManaged || []).map((m) => m && m.host).filter(Boolean) })
     .then((r) => {
       netResult = netscan.merge(netResult, r); netError = null;
       return syncNames(netResult).then((sync) => { if (sync) netResult.piSync = sync; return r; });
