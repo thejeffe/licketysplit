@@ -105,17 +105,20 @@ function run(cmd, args, ms) {
   return new Promise((resolve) => execFile(cmd, args, { timeout: ms || 20000, env: Object.assign({}, process.env, { LC_ALL: 'C' }) },
     (err, stdout, stderr) => resolve({ err, out: String(stdout || ''), stderr: String(stderr || '') })));
 }
-let aptCache = { at: 0, n: null };
-async function serverCheck(services) {
+let aptCache = { at: 0, n: null, stamp: '' };
+const aptStamp = () => ['/var/lib/dpkg/status', '/var/lib/apt/lists'].map((f) => { try { return String(fs.statSync(f).mtimeMs); } catch (e) { return ''; } }).join('|');
+async function serverCheck(services, force) {
   const out = { services: {}, aptUpdates: null };
   if (services.length) {
     const r = await run('systemctl', ['is-active', ...services]);
     const lines = r.out.trim().split('\n');
     services.forEach((svc, i) => { out.services[svc] = (lines[i] || 'unknown').trim(); });
   }
-  if (Date.now() - aptCache.at > 3600000) {                     // once an hour: it reads the package cache (apt's own timer refreshes it)
+  // recount when packages were installed or the lists refreshed (or on Check now), else at most hourly
+  const stamp = aptStamp();
+  if (force || stamp !== aptCache.stamp || Date.now() - aptCache.at > 3600000) {
     const r = await run('apt', ['list', '--upgradable'], 30000);
-    if (!r.err) aptCache = { at: Date.now(), n: r.out.split('\n').filter((l) => /\/.*\[upgradable/.test(l)).length };
+    if (!r.err) aptCache = { at: Date.now(), n: r.out.split('\n').filter((l) => /\/.*\[upgradable/.test(l)).length, stamp };
   }
   out.aptUpdates = aptCache.n;
   return out;
@@ -467,7 +470,7 @@ function createMonitor(deps) {
 
     // this server
     try {
-      const sv = await serverCheck(c.services || []);
+      const sv = await serverCheck(c.services || [], force);
       const down = Object.entries(sv.services).filter(([, state]) => state !== 'active');
       for (const [name, state] of down) add('svc:' + name, 'alert', 'Server', `${name} isn\u2019t running`, `${state} on ${os.hostname()}`);
       if (sv.aptUpdates) add('aptupd:' + os.hostname(), 'notice', 'Updates', `Update: ${os.hostname()} (this server)`, `${sv.aptUpdates} package${sv.aptUpdates > 1 ? 's' : ''}`, 0, 0);
