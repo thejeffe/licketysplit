@@ -542,6 +542,32 @@ async function scan(opts) {
   return { at: Date.now(), took: Date.now() - t0, subnet: range.cidr, sources, hosts, dnsStats, piRecords: pi.records || null };
 }
 
+// what one device has been asking DNS for (Pi-hole's query log): helps tell what an unknown device is
+async function piholeClientQueries(url, password, ip, n) {
+  const base = url.replace(/\/+$/, '');
+  const call = async (method, p, sid, body) => {
+    const r = await fetch(base + p, { method, signal: AbortSignal.timeout(20000),
+      headers: Object.assign({ 'Content-Type': 'application/json' }, sid ? { 'X-FTL-SID': sid } : {}), body: body ? JSON.stringify(body) : undefined });
+    if (r.status === 401) throw new Error('Pi-hole refused the password');
+    if (!r.ok && r.status !== 204) throw new Error('Pi-hole API: HTTP ' + r.status);
+    return r.status === 204 ? null : r.json();
+  };
+  const a = await call('POST', '/api/auth', null, { password });
+  const sid = a.session && a.session.sid;
+  try {
+    const q = await call('GET', `/api/queries?client_ip=${encodeURIComponent(ip)}&length=${n || 500}`, sid);
+    const by = {};
+    for (const x of (q && q.queries) || []) {
+      if (!x.domain) continue;
+      const e = by[x.domain] || (by[x.domain] = { domain: x.domain, count: 0, blocked: 0, last: 0 });
+      e.count++; if (/block|gravity|denied|regex/i.test(x.status || '')) e.blocked++; e.last = Math.max(e.last, (x.time || 0) * 1000);
+    }
+    return Object.values(by).sort((a2, b) => b.count - a2.count);
+  } finally {
+    if (sid) await call('DELETE', '/api/auth', sid).catch(() => {});
+  }
+}
+
 // ---------- naming devices in Pi-hole ----------
 // Devices with a good name (Home Assistant, mDNS, their own page…) but no DNS name get a local DNS record
 // "<ip> <name>.<suffix>" in Pi-hole. Each record Lickety Split makes is remembered by the device's MAC address
@@ -735,4 +761,4 @@ function merge(prev, res) {
   return { at: res.at, took: res.took, subnet: res.subnet, sources: res.sources, hosts, dnsStats: res.dnsStats || null, piRecords: res.piRecords || null };
 }
 
-module.exports = { scan, merge, parseCidr, localNets, planNames, piholeSync, _test: { unescapeAvahi, mdnsFacts, HA_TEMPLATE } };
+module.exports = { scan, merge, parseCidr, localNets, planNames, piholeSync, piholeClientQueries, _test: { unescapeAvahi, mdnsFacts, HA_TEMPLATE } };

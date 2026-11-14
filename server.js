@@ -549,6 +549,12 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/status/check' && req.method === 'POST') { await monitor.tick(true); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }
     if (p === '/api/status/test-email' && req.method === 'POST') { await monitor.sendTest(); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }
     if (p === '/api/status/send-report' && req.method === 'POST') { await monitor.sendReport(); return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() })); }
+    if (p === '/api/network/queries' && req.method === 'GET') {        // what a device asks DNS for (Pi-hole's log)
+      const ip = url.searchParams.get('ip') || '';
+      if (!require('net').isIP(ip)) throw new Error('Which address?');
+      if (!conf.net.piholeUrl || !conf.net.piholePassword) throw new Error('Pi-hole isn\u2019t set up.');
+      return send(res, 200, { ip, domains: await netscan.piholeClientQueries(conf.net.piholeUrl, conf.net.piholePassword, ip, 600) });
+    }
     if (p === '/api/network/names' && req.method === 'POST') {       // rename / remove / allow again one Pi-hole name
       const b = await readBody(req), mac = String(b.mac || '').toLowerCase();
       if (!/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/.test(mac)) throw new Error('Which device?');
