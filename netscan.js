@@ -495,7 +495,9 @@ async function scan(opts) {
     if (maker === 'private address' && !desc.length) desc.push('Phone, tablet or computer (private Wi-Fi address)');
     const upd = updateWay({ w, md, hd, maker, isHa, ups: (hd && updByDev[hd.id]) || (isHa ? haSelfUpd : []) });
     const matter = !!(md.matter || md.thread || (hd && (hd.doms || []).some((x) => x === 'matter' || x === 'thread')));
-    const brand = brandOf((hd && hd.maker) || maker);
+    let brand = brandOf((hd && hd.maker) || maker);
+    // Amazon: Fire TVs say so; the rest of Amazon's Wi-Fi devices here are Echos
+    if (/^Amazon/.test(brand)) brand = (md.kinds || []).includes('Amazon Fire TV') || /fire ?tv/i.test((hd && hd.model) || '') ? 'Amazon Fire TV' : 'Amazon Echo';
     const homeDomain = !!(hd && (hd.doms || []).some((x) => HOME_DOMAINS.includes(x)));
     return {
       key: mac || ip, ip, mac, name, generic: !!(w.fallbackName && name === w.fallbackName), dns: dnsName, dnsAll: dnsNames, mdns: md.mdnsHost || '', area: (hd && hd.area) || '', maker, brand,
@@ -507,8 +509,11 @@ async function scan(opts) {
   });
 
   // Matter devices without an IPv4 address of their own (mostly Thread): from mDNS and Home Assistant
+  // a device's own Matter announcements (same mDNS host name, or its address) belong to that device
+  const knownMdns = new Set(hosts.map((h) => (h.mdns || '').toLowerCase()).filter(Boolean));
   for (const n of mdns.matter) {
     if (n.ipv4 && hosts.some((h) => h.ip === n.ipv4)) continue;
+    if (n.host && knownMdns.has(n.host.toLowerCase())) continue;
     const hd = n.op ? haByMatter[n.key] : null;
     if (hd) { if (used.has(hd.id)) continue; used.add(hd.id); }
     const vp = (n.txt.vp || '').split('+');
@@ -601,7 +606,8 @@ function planNames(res, opts) {
   const realBase = (h) => { const b = h.name && !h.generic ? slug(h.name) : ''; return b && !/^(unknown|phone-or-computer)$/.test(b) ? b : ''; };
   const fallbackBase = (h) => {
     const tag = h.mac.replace(/:/g, '').slice(-4);
-    const what = h.generic ? slug(h.name.replace(/^Kasa /, 'kasa ')) : h.brand ? slug(h.brand.replace(/ \(.*\)$/, '')).split('-').slice(0, 2).join('-') : 'device';
+    const short = { 'Amazon Echo': 'echo', 'Amazon Fire TV': 'fire-tv' }[h.brand];
+    const what = h.generic ? slug(h.name.replace(/^Kasa /, 'kasa ')) : short || (h.brand ? slug(h.brand.replace(/ \(.*\)$/, '')).split('-').slice(0, 2).join('-') : 'device');
     return `${what || 'device'}-${tag}`;
   };
   // 1. records we already have: keep the name, follow the device
@@ -720,7 +726,7 @@ function brandOf(m) {
   return m.replace(/[\s,，]*(Technologies|Technology|Systems|International|Electronics|Corporate|Corporation|Inc\b|Co\.?,?\s*Ltd|Co\.|Ltd|LLC|GmbH|Limited)\b.*$/i, '').trim() || m;
 }
 // media players, computers and phones, network gear and servers
-const MEDIA_BRAND = /^(Amazon|Vizio|Nintendo|Roku|Sonos|Sony|Samsung|LG Electronics|Google|Bose|Denon|Yamaha|Onkyo|Hisense|TCL)\b/i;
+const MEDIA_BRAND = /^(Amazon|Echo|Fire TV|Vizio|Nintendo|Roku|Sonos|Sony|Samsung|LG Electronics|Google|Bose|Denon|Yamaha|Onkyo|Hisense|TCL)\b/i;
 const MEDIA_KINDS = ['Google Cast', 'Amazon Fire TV', 'Spotify Connect', 'Roku', 'Android TV', 'Music sharing', 'Sonos'];
 const COMPUTER_BRAND = /^(Intel|Microsoft|Dell|Lenovo|ASUS|Acer|Framework|Liteon|AzureWave|Realtek|Hon Hai|Giga-Byte|Micro-Star)\b/i;
 const INFRA_BRAND = /^(eero|Ubiquiti|Netgear|Synology|QNAP|Proxmox|Raspberry Pi|Cisco|Aruba|MikroTik|HP)\b/i;
@@ -728,6 +734,8 @@ function groupOf(h) {
   const { fw, matter, upd, isHa, isSelf, brand = '', maker = '', kinds = [], name = '', model = '', inHa, dnsName = '' } = h;
   if (fw) return 'licketysplit';
   if (isHa) return 'updatable';
+  // Echos, Nest/Google speakers, Apple TVs... are Matter controllers and Thread border routers, not Matter devices
+  if (matter && (MEDIA_BRAND.test(brand) || kinds.some((k) => MEDIA_KINDS.includes(k)) || /^Amazon/.test(brand))) return 'media';
   if (matter) return 'matter';
   if (upd && upd.by === 'esphome') return 'updatable';
   if (HOME_BRAND.test(brand) || kinds.some((k) => HOME_KINDS.includes(k)) || h.homeDomain) return 'home';

@@ -121,10 +121,10 @@ $('refresh').addEventListener('click', async () => {
 let NET = null;
 const GROUPS = [
   { id: 'licketysplit', title: 'Updated by Lickety Split', note: 'Firmware this page builds and sends.' },
-  { id: 'matter', title: 'Matter and Thread', note: 'Matter devices, Thread border routers and Matter controllers. Matter firmware usually updates through the app that set it up (Home Assistant, Alexa, Google Home, Apple Home).' },
+  { id: 'matter', title: 'Matter and Thread', note: 'Matter and Thread devices. Matter firmware usually updates through the app that set it up (Home Assistant, Alexa, Google Home, Apple Home).' },
   { id: 'home', title: 'Home automation', note: 'Plugs, switches, thermostats, cameras and other smart-home devices, by maker.' },
   { id: 'updatable', title: 'Updatable another way', note: 'ESPHome, Home Assistant update entities, and devices with their own web updater.' },
-  { id: 'media', title: 'TVs, speakers and games', note: 'Echos, Fire TVs, the TV, consoles and other players. They update themselves.' },
+  { id: 'media', title: 'TVs, speakers and games', note: 'Echos, Fire TVs, the TV, consoles and other players. They update themselves. (Echos also run your Matter and Thread network.)' },
   { id: 'infra', title: 'Network, servers and printers', note: 'The eeros, the Proxmox hosts, Pi-hole, this server, the printer.' },
   { id: 'computers', title: 'Phones and computers', note: 'Laptops, phones and tablets (many hide their real address, so they look new each time).' },
   { id: 'other', title: 'Everything else', note: 'Phones, computers, plugs, speakers… with how they get updates, where that\u2019s known.' },
