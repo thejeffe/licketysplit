@@ -10,6 +10,7 @@ const path = require('path');
 const crypto = require('crypto');
 const netscan = require('./netscan');
 const monitorLib = require('./monitor');
+const speedtest = require('./speedtest');
 
 const CFG = {
   port: +(process.env.PORT || 8110),
@@ -61,6 +62,7 @@ const DEFAULT_CONF = {
   owner: '',
   ping: DEFAULT_PING,
   monitor: monitorLib.DEFAULTS,     // Duck Hunting: home checks and email
+  speed: { every: 60, minDown: 0, minUp: 0 },   // internet speed test: minutes between tests (0 = off), alert limits in Mbps (0 = none)
   devices: [],          // added on the page; saved in DATA_DIR/config.json
   net: DEFAULT_NET,
 };
@@ -70,6 +72,7 @@ function loadConf() {
   conf.net = Object.assign({}, DEFAULT_NET, conf.net || {});
   conf.ping = Object.assign({}, DEFAULT_PING, conf.ping || {});
   conf.monitor = Object.assign({}, monitorLib.DEFAULTS, conf.monitor || {});
+  conf.speed = Object.assign({ every: 60, minDown: 0, minUp: 0 }, conf.speed || {});
 }
 function saveConf() {
   fs.mkdirSync(CFG.dataDir, { recursive: true });
@@ -425,11 +428,50 @@ function cleanPing(b) {
   return p;
 }
 
+// ---------- internet speed test (speedtest.js) ----------
+const SPEED_FILE = path.join(CFG.dataDir, 'speed.json'), SPEED_KEEP = 60 * 86400000;
+let speedLog = [], speedRun = null, speedError = null;
+try { speedLog = JSON.parse(fs.readFileSync(SPEED_FILE, 'utf8')); } catch (e) { /* none yet */ }
+function runSpeed() {
+  if (speedRun) return speedRun;
+  speedRun = speedtest.runTest().then((r) => {
+    speedLog.push(r); speedError = null;
+    const cut = Date.now() - SPEED_KEEP;
+    while (speedLog.length && speedLog[0].t < cut) speedLog.shift();
+    fs.writeFile(SPEED_FILE + '.tmp', JSON.stringify(speedLog), (e) => { if (!e) fs.rename(SPEED_FILE + '.tmp', SPEED_FILE, () => {}); });
+    log(`Speed test: ${r.down} down, ${r.up} up Mbps, ${r.ping} ms`);
+    return r;
+  }).catch((e) => {
+    speedError = { at: Date.now(), until: e.until || 0, msg: e.name === 'TimeoutError' ? 'no answer from the test server'
+      : e.message + (e.until ? ` (next try after ${new Date(e.until).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })})` : '') };
+    log('Speed test failed: ' + speedError.msg); throw e;
+  })
+    .finally(() => { speedRun = null; });
+  return speedRun;
+}
+function speedTick() {
+  const every = +conf.speed.every || 0;
+  if (!every || speedRun || (speedError && speedError.until > Date.now())) return;
+  const last = speedLog[speedLog.length - 1];
+  const lastTry = Math.max(last ? last.t : 0, speedError ? speedError.at : 0);
+  if (Date.now() - lastTry >= every * 60000 - 30000) runSpeed().catch(() => {});
+}
+function publicSpeed() { return { every: conf.speed.every, minDown: conf.speed.minDown, minUp: conf.speed.minUp, running: !!speedRun, error: speedError, last: speedLog[speedLog.length - 1] || null }; }
+function cleanSpeed(b) {
+  const c = Object.assign({}, conf.speed);
+  if ('every' in b) c.every = [0, 15, 30, 60, 180, 360, 720, 1440].includes(+b.every) ? +b.every : 60;
+  for (const k of ['minDown', 'minUp']) if (k in b) { const v = Math.round(+b[k] || 0); if (v < 0 || v > 100000) throw new Error(k + ' should be a number of Mbps'); c[k] = v; }
+  return c;
+}
+setTimeout(speedTick, 90000);
+setInterval(speedTick, 60000);
+
 // ---------- Duck Hunting (monitor.js) ----------
 const monitor = monitorLib.createMonitor({
   cfg: () => conf.monitor, net: () => conf.net, devices: () => conf.devices, probe, dataDir: CFG.dataDir, log,
   netResult: () => netResult, pingSummary: () => (conf.ping.url ? Object.assign(publicPing(), pingSummary()) : null),
   setCfg: (patch) => { Object.assign(conf.monitor, patch); saveConf(); },
+  speed: () => ({ cfg: conf.speed, last: speedLog.slice(-2) }),
 });
 function publicMonitor() {
   const m = conf.monitor;
@@ -447,7 +489,7 @@ function cleanMonitor(b) {
   if (typeof b.password === 'string' && b.password.trim()) m.password = b.password.replace(/\s+/g, '').slice(0, 100);   // app passwords are shown with spaces
   const num = (k, lo, hi) => { if (k in b) { const v = Math.round(+b[k]); if (!(v >= lo && v <= hi)) throw new Error(`${k} should be ${lo}\u2013${hi}`); m[k] = v; } };
   if (b.ducks && typeof b.ducks === 'object') {
-    const keys = ['locks', 'garage', 'automations', 'ha', 'pihole', 'updates', 'devices', 'watch', 'disk', 'proxmox', 'server', 'ring', 'printer'];
+    const keys = ['locks', 'garage', 'automations', 'ha', 'pihole', 'updates', 'devices', 'watch', 'disk', 'proxmox', 'server', 'ring', 'printer', 'speed'];
     m.ducks = Object.fromEntries(keys.map((k) => [k, b.ducks[k] !== false]));
   }
   if ('pveUrl' in b) {
@@ -513,7 +555,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x'), p = url.pathname;
   try {
     if (p === '/api/state' && req.method === 'GET') {
-      return send(res, 200, { owner: conf.owner, firmware: catalog(), devices: conf.devices, ota: otaRuns, refreshing: !!refreshing, lastRefresh: lastRefresh.at, tokenSet: !!CFG.token, net: publicNet(), ping: publicPing(), monitor: publicMonitor() });
+      return send(res, 200, { owner: conf.owner, firmware: catalog(), devices: conf.devices, ota: otaRuns, refreshing: !!refreshing, lastRefresh: lastRefresh.at, tokenSet: !!CFG.token, net: publicNet(), ping: publicPing(), monitor: publicMonitor(), speed: publicSpeed() });
     }
     if (p === '/api/settings' && req.method === 'PUT') {
       const b = await readBody(req);
@@ -527,15 +569,24 @@ const server = http.createServer(async (req, res) => {
       const hadPing = conf.ping.url;
       if (b.ping && typeof b.ping === 'object') conf.ping = cleanPing(b.ping);
       if (b.monitor && typeof b.monitor === 'object') conf.monitor = cleanMonitor(b.monitor);
+      const speedWas = conf.speed.every;
+      if (b.speed && typeof b.speed === 'object') conf.speed = cleanSpeed(b.speed);
+      if (conf.speed.every && !speedWas) setTimeout(speedTick, 100);
       if (conf.ping.url && conf.ping.url !== hadPing) { pingLast = null; setTimeout(pingTick, 100); }
       saveConf();
       if (conf.net.enabled && !wasOn) netTick();
-      return send(res, 200, { owner: conf.owner, net: publicNet(), ping: publicPing(), monitor: publicMonitor() });
+      return send(res, 200, { owner: conf.owner, net: publicNet(), ping: publicPing(), monitor: publicMonitor(), speed: publicSpeed() });
     }
     if (p === '/api/network' && req.method === 'GET') {
       return send(res, 200, { settings: publicNet(), scanning: !!netRun, error: netError, result: netResult, names: dnsNames(),
         ping: conf.ping.url ? Object.assign(publicPing(), pingSummary()) : null });
     }
+    if (p === '/api/speed' && req.method === 'GET') {
+      const days = Math.min(60, Math.max(1, +url.searchParams.get('days') || 7)), cut = Date.now() - days * 86400000;
+      return send(res, 200, Object.assign(publicSpeed(), { history: speedLog.filter((r) => r.t >= cut) }));
+    }
+    if (p === '/api/speed/run' && req.method === 'POST') {
+      if (speedError && speedError.until > Date.now()) throw new Error(speedError.msg); const r = await runSpeed(); return send(res, 200, Object.assign(publicSpeed(), { result: r })); }
     if (p === '/api/status' && req.method === 'GET') return send(res, 200, Object.assign(monitor.report(), { settings: publicMonitor() }));
     if (p === '/api/status/ignore' && req.method === 'POST') {          // ignore / stop ignoring one problem
       const b = await readBody(req), id = String(b.id || '').slice(0, 200);

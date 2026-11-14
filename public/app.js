@@ -337,7 +337,8 @@ function renderStatus() {
     <div class="st-sec"><h3>Emails</h3><ul class="mails">${(ST.emails || []).slice(0, 8).map((m) => `<li>${since(m.at)} · ${esc(m.subject)}${m.ok ? '' : ` <span class="off">failed: ${esc(m.error)}</span>`}</li>`).join('') || '<li class="muted">None sent yet.</li>'}</ul>
     <div class="acts-r" style="justify-content:flex-start;margin-top:8px"><button type="button" class="small" id="stTest">Send a test email</button><button type="button" class="small" id="stSend">Email this report now</button></div></div>`;
 }
-async function loadStatus() { try { ST = await api('GET', 'api/status'); renderStatus(); } catch (e) { $('stNote').textContent = 'Couldn\u2019t load the status: ' + e.message; } }
+async function loadStatus() { loadSpeed(); return loadStatus2(); }
+async function loadStatus2() { try { ST = await api('GET', 'api/status'); renderStatus(); } catch (e) { $('stNote').textContent = 'Couldn\u2019t load the status: ' + e.message; } }
 $('stCheck').addEventListener('click', async () => { $('stCheck').disabled = true; try { ST = await api('POST', 'api/status/check'); renderStatus(); } catch (e) { say($('msg'), e.message, 'err'); } $('stCheck').disabled = false; });
 $('stBody').addEventListener('click', async (ev) => {
   const b = ev.target.closest('button'); if (!b) return;
@@ -354,6 +355,49 @@ $('stBody').addEventListener('click', async (ev) => {
   catch (e) { say($('msg'), 'Email failed: ' + e.message, 'err'); b.disabled = false; }
 });
 setInterval(() => { if (!document.hidden) loadStatus(); }, 60000);
+
+// ---------- internet speed: history chart ----------
+let SPEED = null, speedDays = 7;
+const mbps = (v) => v >= 100 ? Math.round(v) : v.toFixed(1);
+function renderSpeed() {
+  const sp = SPEED; if (!sp) return;
+  const on = sp.every > 0 || (sp.history && sp.history.length);
+  $('speedBox').hidden = !on; if (!on) return;
+  const h = sp.history || [], l = sp.last;
+  $('speedNote').innerHTML = (l ? `<b>↓ ${mbps(l.down)} Mbps</b> · <b>↑ ${mbps(l.up)} Mbps</b> · ${l.ping} ms (±${l.jitter}) · ${ago(l.t)}` : 'No test yet.')
+    + (sp.every ? ` · every ${sp.every >= 60 ? (sp.every / 60) + ' h' : sp.every + ' min'}` : ' · automatic tests are off (⚙ Settings → General)')
+    + (sp.running ? ' · <b>testing now…</b>' : '') + (sp.error ? ` · <span class="off">last try failed: ${esc(sp.error.msg)}</span>` : '');
+  $('speedRun').disabled = !!sp.running;
+  for (const b of $('speedRange').querySelectorAll('button')) b.setAttribute('aria-pressed', String(+b.dataset.days === speedDays));
+  if (h.length < 2) { $('speedChart').innerHTML = h.length ? '<p class="note">One test so far: the chart starts with the second.</p>' : ''; return; }
+  const W = 640, H = 196, L = 44, R = 36, T = 24, B = 24, t0 = Date.now() - speedDays * 86400000, t1 = Date.now();
+  const maxV = Math.max(10, ...h.map((r) => Math.max(r.down, r.up)));
+  const step = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000].find((s2) => maxV / s2 <= 5) || 5000, top = Math.ceil(maxV / step) * step;
+  const maxP = Math.max(20, ...h.map((r) => r.ping || 0)), topP = Math.ceil(maxP / 10) * 10;
+  const x = (t) => L + (W - L - R) * (t - t0) / (t1 - t0), y = (v) => T + (H - T - B) * (1 - v / top), yp = (v) => T + (H - T - B) * (1 - v / topP);
+  const line = (k, fy) => h.map((r, i) => `${i ? 'L' : 'M'}${x(r.t).toFixed(1)},${fy(r[k] || 0).toFixed(1)}`).join('');
+  let grid = '';
+  for (let v = 0; v <= top; v += step) grid += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  for (let v = 0; v <= topP; v += topP / 2) grid += `<text x="${W - R + 6}" y="${yp(v) + 4}">${v}</text>`;
+  const days = speedDays <= 1 ? 6 : speedDays, tickEvery = speedDays <= 1 ? 4 * 3600000 : Math.ceil(speedDays / 7) * 86400000;
+  for (let t = Math.ceil(t0 / tickEvery) * tickEvery; t <= t1; t += tickEvery) {
+    const d = new Date(t), lab = speedDays <= 1 ? d.toLocaleTimeString(undefined, { hour: 'numeric' }) : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+    grid += `<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}"/><text x="${x(t)}" y="${H - 6}" text-anchor="middle">${esc(lab)}</text>`;
+  }
+  const dots = h.map((r) => `<circle cx="${x(r.t).toFixed(1)}" cy="${y(r.down).toFixed(1)}" r="2.2" fill="var(--accent)"><title>${new Date(r.t).toLocaleString()}: ↓ ${mbps(r.down)} ↑ ${mbps(r.up)} Mbps, ${r.ping} ms</title></circle>`).join('');
+  $('speedChart').innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Internet speed over time">${grid}
+    <text x="${L - 6}" y="10" text-anchor="end">Mbps</text><text x="${W - R + 6}" y="10">ms</text>
+    <path class="ping" d="${line('ping', yp)}"/><path class="up" d="${line('up', y)}"/><path class="down" d="${line('down', y)}"/>${dots}</svg>
+    <div class="legend"><span><i style="background:var(--accent)"></i>download</span><span><i style="background:var(--ok)"></i>upload</span><span><i style="background:var(--muted);height:2px"></i>ping (right scale)</span><span>${h.length} tests · typical ↓ ${mbps(median(h.map((r) => r.down)))} ↑ ${mbps(median(h.map((r) => r.up)))}</span></div>`;
+}
+function median(a) { const s2 = [...a].sort((p, q) => p - q); return s2.length ? s2[Math.floor(s2.length / 2)] : 0; }
+async function loadSpeed() { try { SPEED = await api('GET', 'api/speed?days=' + speedDays); renderSpeed(); } catch (e) { /* shown next time */ } if (SPEED && SPEED.running) setTimeout(loadSpeed, 5000); }
+$('speedRange').addEventListener('click', (ev) => { const b = ev.target.closest('button[data-days]'); if (!b) return; speedDays = +b.dataset.days; loadSpeed(); });
+$('speedRun').addEventListener('click', async () => {
+  $('speedRun').disabled = true; SPEED = Object.assign({}, SPEED, { running: true }); renderSpeed();
+  try { await api('POST', 'api/speed/run'); } catch (e) { say($('msg'), 'Speed test failed: ' + e.message, 'err'); }
+  loadSpeed();
+});
 
 // ---------- tabs (remembered per browser) ----------
 function showTab(t) {
@@ -398,6 +442,7 @@ $('setBtn').addEventListener('click', () => {
   $('mWatch').value = (mo.watch || []).map((w) => `${w.name} = ${w.url}`).join('\n');
   $('vUrl').value = mo.pveUrl || ''; $('vToken').value = mo.pveToken || ''; $('vSecret').value = '';
   $('vSecret').placeholder = mo.pveSecretSet ? 'Set (leave blank to keep it)' : 'the secret Proxmox showed once';
+  const spc = S.speed || {}; $('spEvery').value = String(spc.every ?? 60); $('spDown').value = spc.minDown || 0; $('spUp').value = spc.minUp || 0;
   $('mServices').value = (mo.services || []).join('\n'); $('mRingBatt').value = mo.ringBattery ?? 20; $('mToner').value = mo.tonerPct ?? 10; $('mPrinter').value = mo.printerUrl || '';
   const pg = S.ping || {};
   $('pUrl').value = ''; $('pUrl').placeholder = pg.set ? `Set: ${pg.host} (leave blank to keep it)` : 'https://hc-ping.com/your-check-id';
@@ -418,6 +463,7 @@ $('setForm').addEventListener('submit', async (ev) => {
   try {
     await api('PUT', 'api/settings', { owner: $('sOwner').value, net: { enabled: $('nOn').checked, subnet: $('nSubnet').value, dns: $('nDns').value, haUrl: $('nHaUrl').value, haToken: $('nHaToken').value, piholeUrl: $('nPiUrl').value, piholePassword: $('nPiPw').value, piholeNames: $('nPiNames').checked, piholeSuffix: $('nPiSuffix').value || 'lan' },
       ping: { url: $('pUrl').value, every: +$('pEvery').value, clear: $('pClear').checked },
+      speed: { every: +$('spEvery').value, minDown: +$('spDown').value, minUp: +$('spUp').value },
       monitor: { enabled: $('mOn').checked, every: +$('mEvery').value, to: $('mTo').value, from: $('mFrom').value, password: $('mPw').value, notifyNew: $('mNew').checked, notifyClear: $('mClear').checked,
         weeklyDay: +$('mDay').value, weeklyHour: +$('mHour').value, doorMin: +$('mDoor').value, garageMin: +$('mGarage').value,  diskGb: +$('mDisk').value, watch: $('mWatch').value,
         pveUrl: $('vUrl').value, pveToken: $('vToken').value, pveSecret: $('vSecret').value, services: $('mServices').value,

@@ -37,6 +37,11 @@
   <div class="boxhead"><h2 id="stHead">Status</h2><button type="button" class="small" id="stCheck">Check now</button></div>
   <p class="note" id="stNote"></p>
   <div id="stBody"></div>
+  <div class="st-sec" id="speedBox" hidden>
+   <div class="boxhead"><h3 style="margin:0">Internet speed</h3><div class="acts-r"><span class="seg" id="speedRange"><button type="button" data-days="1">24 h</button><button type="button" data-days="7" aria-pressed="true">7 days</button><button type="button" data-days="30">30 days</button></span><button type="button" class="small" id="speedRun">Test now</button></div></div>
+   <p class="note" id="speedNote"></p>
+   <div id="speedChart"></div>
+  </div>
  </section>
 
  <section class="box" data-pane="fw">
@@ -81,6 +86,11 @@
    <label>GitHub owner (user or organization the firmware repos belong to)<input id="sOwner" type="text" autocapitalize="off" spellcheck="false" placeholder="your-github-name"></label>
    <p class="note" id="sRepos"></p>
    <p class="note" id="sToken"></p>
+   <h3>Internet speed test</h3>
+   <div class="two">
+    <label>Test every<select id="spEvery"><option value="0">off</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">hour</option><option value="180">3 hours</option><option value="360">6 hours</option><option value="720">12 hours</option><option value="1440">day</option></select></label>
+    <label>&nbsp;<span class="note" style="margin:0">Against Cloudflare's test servers; each test moves about 1 GB.</span></label>
+   </div>
    <h3>Health ping</h3>
    <div class="two">
     <label>Ping this address (e.g. healthchecks.io)<input id="pUrl" type="password" autocomplete="off" spellcheck="false"></label>
@@ -153,6 +163,7 @@
     <label class="duck"><input type="checkbox" data-duck="server"><span><b>This server</b><small>These services are running (one per line)</small><textarea id="mServices" rows="3" spellcheck="false" placeholder="signinator"></textarea></span><em data-dstat="server"></em></label>
     <label class="duck"><input type="checkbox" data-duck="ring"><span><b>Ring cameras</b><small>Offline, or battery at or below <input id="mRingBatt" type="number" min="1" max="90" inputmode="numeric"> % (from Home Assistant)</small></span><em data-dstat="ring"></em></label>
     <label class="duck"><input type="checkbox" data-duck="printer"><span><b>Printer</b><small>Jams, open doors, empty trays; toner at or below <input id="mToner" type="number" min="1" max="50" inputmode="numeric"> %</small><input id="mPrinter" type="text" autocapitalize="off" spellcheck="false" placeholder="http://192.168.1.60 (an HP printer's web address)" style="margin-top:4px"></span><em data-dstat="printer"></em></label>
+    <label class="duck"><input type="checkbox" data-duck="speed"><span><b>Internet speed</b><small>Two tests in a row below <input id="spDown" type="number" min="0" max="100000" inputmode="numeric"> Mbps down or <input id="spUp" type="number" min="0" max="100000" inputmode="numeric"> Mbps up (0 = don't alert)</small></span><em data-dstat="speed"></em></label>
     <label class="duck"><input type="checkbox" data-duck="disk"><span><b>Disk space</b><small>This server has less than <input id="mDisk" type="number" min="0" max="500" step="0.5" inputmode="decimal"> GB free</small></span><em data-dstat="disk"></em></label>
    </div>
   </div>

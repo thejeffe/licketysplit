@@ -337,6 +337,7 @@ function adviceFor(f, devices) {
   if (id.startsWith('svc:')) { const n = id.slice(4); return `On this server: "sudo systemctl restart ${n}", then "journalctl -u ${n} -n 50" to see why it stopped.`; }
   if (id.startsWith('ringbatt:')) return 'Charge or swap the camera\u2019s battery (Ring app \u2192 the device \u2192 Device Health shows the level). A Stick Up Cam has a removable pack; the doorbell comes off its plate with the security screw.';
   if (id.startsWith('ring:')) return 'The camera is offline: check its battery (or power) and Wi-Fi in the Ring app \u2192 Device Health. Power-cycle it (hold the setup button) if the battery is fine.';
+  if (id === 'speed') return 'Two tests in a row were slow. Check the eero app for an outage or a speed test from the eero itself; restart the modem and the eero if it\u2019s still slow; compare with a wired laptop to rule out this server.';
   if (id.startsWith('printertoner:')) return 'Order a new cartridge (the part number is in the message) and swap it when it gets to a few percent.';
   if (id.startsWith('printer:')) return 'Look at the printer\u2019s display: a jam, open door or empty tray. Its web page (the address in Settings) shows the same status.';
   if (id.startsWith('upd:') || id.startsWith('piholeupd:')) {
@@ -358,7 +359,7 @@ function duckOf(id) {
   return { lock: 'locks', garage: 'garage', auto: 'automations', ha: 'ha', pihole: 'pihole', piholeblk: 'pihole', piholegrav: 'pihole',
     piholeapi: 'pihole', upd: 'updates', piholeupd: 'updates', dev: 'devices', web: 'watch', disk: 'disk', disklow: 'disk',
     pve: 'proxmox', pvenode: 'proxmox', pveguest: 'proxmox', pvedisk: 'proxmox', pvezfs: 'proxmox', pvestore: 'proxmox', pvemem: 'proxmox', pvebackup: 'proxmox', pveupd: 'updates',
-    svc: 'server', aptupd: 'updates', ring: 'ring', ringbatt: 'ring', printer: 'printer', printertoner: 'printer' }[k] || k;
+    svc: 'server', aptupd: 'updates', ring: 'ring', ringbatt: 'ring', printer: 'printer', printertoner: 'printer', speed: 'speed' }[k] || k;
 }
 
 // ---------- the monitor ----------
@@ -486,6 +487,16 @@ function createMonitor(deps) {
         check('Printer', !pr.problem, pr.toner.map((t) => `toner ${t.pct}%`).join(', ') + (pr.words[0] ? ' · ' + pr.words[0] : ''));
       } catch (e) { check('Printer', true, 'off or not answering (' + e.message + ')'); }   // a printer that's switched off is normal
     }
+
+    // internet speed: the last two tests both under the limit
+    const sp = deps.speed && deps.speed();
+    if (sp && sp.cfg && (sp.cfg.minDown || sp.cfg.minUp) && sp.last.length >= 2) {
+      const slowDown = sp.cfg.minDown && sp.last.every((r) => r.down < sp.cfg.minDown);
+      const slowUp = sp.cfg.minUp && sp.last.every((r) => r.up < sp.cfg.minUp);
+      const l = sp.last[sp.last.length - 1];
+      if (slowDown || slowUp) add('speed', 'alert', 'Internet', `Internet is slow: ${slowDown ? l.down + ' Mbps down' : ''}${slowDown && slowUp ? ', ' : ''}${slowUp ? l.up + ' Mbps up' : ''}`, `limit ${sp.cfg.minDown || '–'} down / ${sp.cfg.minUp || '–'} up`, sp.last[0].t, 0);
+      check('Internet speed', !(slowDown || slowUp), `${l.down} down / ${l.up} up Mbps`);
+    } else if (sp && sp.last.length) { const l = sp.last[sp.last.length - 1]; check('Internet speed', true, `${l.down} down / ${l.up} up Mbps`); }
 
     // your devices + watched web addresses (down = 3 misses in a row)
     const targets = deps.devices().map((d) => ({ key: 'dev:' + d.id, name: d.name, run: () => deps.probe(d).then((p) => { if (!p.online) throw new Error(p.detail || 'no answer'); }) }))

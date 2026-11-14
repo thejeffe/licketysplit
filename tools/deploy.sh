@@ -3,8 +3,8 @@
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")/.." && pwd)"; DST=/opt/licketysplit
 [ -w "$DST/server.js" ] || { echo "Can't write to $DST. Run 'sudo bash install.sh' once first."; exit 1; }
-node --check "$SRC/server.js"; node --check "$SRC/netscan.js"; node --check "$SRC/monitor.js"
-cp "$SRC/server.js" "$SRC/netscan.js" "$SRC/monitor.js" "$DST/"
+node --check "$SRC/server.js"; node --check "$SRC/netscan.js"; node --check "$SRC/monitor.js"; node --check "$SRC/speedtest.js"
+cp "$SRC/server.js" "$SRC/netscan.js" "$SRC/monitor.js" "$SRC/speedtest.js" "$DST/"
 cp -r "$SRC/public/." "$DST/public/"
 chmod -R a+rX "$DST"
 echo "Copied to $DST. Now run:  sudo systemctl restart licketysplit"

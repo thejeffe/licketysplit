@@ -87,6 +87,18 @@ dialog{width:min(640px,calc(100vw - 32px))}
 .duck em{font:normal 600 11.5px var(--body);color:var(--ok);white-space:nowrap}.duck em.bad{color:var(--err)}.duck em.off{color:var(--muted)}
 .duck:has(> input:not(:checked)) span{opacity:.55}
 
+/* speed chart */
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:5px 10px;font-size:13px;background:var(--row)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.chart{width:100%;height:auto;display:block;font:11px var(--mono);color:var(--muted)}
+.chart .grid{stroke:var(--rule);stroke-width:1}
+.chart .down{stroke:var(--accent);fill:none;stroke-width:2}.chart .up{stroke:var(--ok);fill:none;stroke-width:2}
+.chart .ping{stroke:var(--muted);fill:none;stroke-width:1.2;stroke-dasharray:3 3}
+.chart text{fill:var(--muted)}
+.legend{display:flex;gap:14px;font-size:12.5px;color:var(--muted);margin-top:4px}
+.legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px;border-radius:2px}
+
 /* status report */
 .four{display:grid;gap:8px;grid-template-columns:repeat(4,1fr)}
 textarea{font:13px var(--mono);width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--rule);background:var(--bg);color:var(--ink);resize:vertical}
