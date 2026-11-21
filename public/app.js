@@ -458,6 +458,18 @@ function showSTab(t) {
 }
 document.querySelector('.stabs').addEventListener('click', (ev) => { const b = ev.target.closest('[data-stab]'); if (b) showSTab(b.dataset.stab); });
 $('sCancel').addEventListener('click', () => $('setDlg').close());
+// Restart: the server exits, systemd starts it again; wait until it answers, then reload the page
+$('sRestart').addEventListener('click', async () => {
+  if (!confirm('Restart Lickety Split? It is back in a few seconds. Don\'t do this while an update is being sent to a device.')) return;
+  const b = $('sRestart'); b.disabled = true; say($('sMsg'), 'Restarting Lickety Split…');
+  try { await api('POST', 'api/restart', {}); } catch (e) { b.disabled = false; say($('sMsg'), e.message, 'err'); return; }
+  await new Promise((r) => setTimeout(r, 2500));
+  for (let i = 0; i < 30; i++) {
+    try { const r = await fetch('health', { cache: 'no-store' }); if (r.ok) { location.reload(); return; } } catch (e) { /* still starting */ }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  b.disabled = false; say($('sMsg'), 'Lickety Split hasn\'t come back. Check: journalctl -u licketysplit', 'err');
+});
 $('setForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   try {

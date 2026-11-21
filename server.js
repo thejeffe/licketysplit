@@ -661,6 +661,13 @@ const server = http.createServer(async (req, res) => {
       if (!file.startsWith(FW_DIR + path.sep)) return send(res, 403, 'Forbidden', 'text/plain');
       return fs.readFile(file, (err, buf) => err ? send(res, 404, 'Not found', 'text/plain') : send(res, 200, buf, MIME['.bin'], { 'Cache-Control': 'public, max-age=86400' }));
     }
+    if (p === '/api/restart' && req.method === 'POST') {
+      // Settings -> Restart. systemd (Restart=always) starts it again; JSON-only so a plain web form elsewhere can't trigger it
+      if (!/^application\/json/i.test(req.headers['content-type'] || '')) return send(res, 415, { error: 'Send JSON.' });
+      if (Object.values(otaRuns).some((r) => r.state === 'sending')) return send(res, 409, { error: 'An update is being sent to a device. Restart when it is done.' });
+      log('Restart asked for from the web page'); send(res, 200, { ok: true, restarting: true });
+      setTimeout(() => process.exit(0), 300); return;
+    }
     if (p === '/health') return send(res, 200, { ok: true });
     if (p.startsWith('/api/')) return send(res, 404, { error: 'Not found' });
     const file = path.normalize(path.join(PUBLIC, p === '/' ? 'index.html' : p));
