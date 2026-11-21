@@ -375,7 +375,15 @@ function renderSpeed() {
   const step = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000].find((s2) => maxV / s2 <= 5) || 5000, top = Math.ceil(maxV / step) * step;
   const maxP = Math.max(20, ...h.map((r) => r.ping || 0)), topP = Math.ceil(maxP / 10) * 10;
   const x = (t) => L + (W - L - R) * (t - t0) / (t1 - t0), y = (v) => T + (H - T - B) * (1 - v / top), yp = (v) => T + (H - T - B) * (1 - v / topP);
-  const line = (k, fy) => h.map((r, i) => `${i ? 'L' : 'M'}${x(r.t).toFixed(1)},${fy(r[k] || 0).toFixed(1)}`).join('');
+  // Smoothed: a rolling average (wider for longer ranges; with 5+ tests the highest and lowest are left out, so one
+  // odd test doesn't make a spike), drawn as a curve that never overshoots. Each test is still a faint dot.
+  const win = Math.max(3, Math.round(h.length / 30) * 2 + 1);
+  const smooth = (k) => h.map((r, i) => {
+    const a = h.slice(Math.max(0, i - (win >> 1)), i + (win >> 1) + 1).map((q) => q[k] || 0).sort((p, q) => p - q);
+    const v = a.length >= 5 ? a.slice(1, -1) : a;
+    return { t: r.t, v: v.reduce((p, q) => p + q, 0) / v.length };
+  });
+  const line = (k, fy) => curve(smooth(k).map((p) => [x(p.t), fy(p.v)]), h.map((r) => r.t));
   let grid = '';
   for (let v = 0; v <= top; v += step) grid += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
   for (let v = 0; v <= topP; v += topP / 2) grid += `<text x="${W - R + 6}" y="${yp(v) + 4}">${v}</text>`;
@@ -384,11 +392,34 @@ function renderSpeed() {
     const d = new Date(t), lab = speedDays <= 1 ? d.toLocaleTimeString(undefined, { hour: 'numeric' }) : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
     grid += `<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}"/><text x="${x(t)}" y="${H - 6}" text-anchor="middle">${esc(lab)}</text>`;
   }
-  const dots = h.map((r) => `<circle cx="${x(r.t).toFixed(1)}" cy="${y(r.down).toFixed(1)}" r="2.2" fill="var(--accent)"><title>${new Date(r.t).toLocaleString()}: ↓ ${mbps(r.down)} ↑ ${mbps(r.up)} Mbps, ${r.ping} ms</title></circle>`).join('');
+  const tip = (r) => `<title>${new Date(r.t).toLocaleString()}: ↓ ${mbps(r.down)} ↑ ${mbps(r.up)} Mbps, ${r.ping} ms</title>`;
+  const dots = h.map((r) => `<circle cx="${x(r.t).toFixed(1)}" cy="${y(r.up).toFixed(1)}" r="2" fill="var(--ok)" opacity=".35">${tip(r)}</circle>`
+    + `<circle cx="${x(r.t).toFixed(1)}" cy="${y(r.down).toFixed(1)}" r="2.2" fill="var(--accent)" opacity=".45">${tip(r)}</circle>`).join('');
   $('speedChart').innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Internet speed over time">${grid}
     <text x="${L - 6}" y="10" text-anchor="end">Mbps</text><text x="${W - R + 6}" y="10">ms</text>
     <path class="ping" d="${line('ping', yp)}"/><path class="up" d="${line('up', y)}"/><path class="down" d="${line('down', y)}"/>${dots}</svg>
-    <div class="legend"><span><i style="background:var(--accent)"></i>download</span><span><i style="background:var(--ok)"></i>upload</span><span><i style="background:var(--muted);height:2px"></i>ping (right scale)</span><span>${h.length} tests · typical ↓ ${mbps(median(h.map((r) => r.down)))} ↑ ${mbps(median(h.map((r) => r.up)))}</span></div>`;
+    <div class="legend"><span><i style="background:var(--accent)"></i>download</span><span><i style="background:var(--ok)"></i>upload</span><span><i style="background:var(--muted);height:2px"></i>ping (right scale)</span><span>${h.length} tests (lines are averaged, dots are single tests) · typical ↓ ${mbps(median(h.map((r) => r.down)))} ↑ ${mbps(median(h.map((r) => r.up)))}</span></div>`;
+}
+// A smooth path through points (monotone cubic: no bumps past the data); a break where tests stopped for over 6 hours.
+function curve(pts, ts) {
+  let d = '';
+  for (let s0 = 0; s0 < pts.length;) {
+    let e = s0 + 1; while (e < pts.length && ts[e] - ts[e - 1] <= 6 * 3600000) e++;
+    const P = pts.slice(s0, e), n = P.length;
+    d += `M${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`;
+    if (n > 1) {
+      const dx = [], m = [], tg = [];
+      for (let i = 0; i < n - 1; i++) { dx[i] = P[i + 1][0] - P[i][0] || 1e-6; m[i] = (P[i + 1][1] - P[i][1]) / dx[i]; }
+      tg[0] = m[0]; tg[n - 1] = m[n - 2];
+      for (let i = 1; i < n - 1; i++) tg[i] = m[i - 1] * m[i] <= 0 ? 0 : 3 * (dx[i - 1] + dx[i]) / ((2 * dx[i] + dx[i - 1]) / m[i - 1] + (dx[i] + 2 * dx[i - 1]) / m[i]);
+      for (let i = 0; i < n - 1; i++) {
+        const h3 = dx[i] / 3;
+        d += `C${(P[i][0] + h3).toFixed(1)},${(P[i][1] + tg[i] * h3).toFixed(1)} ${(P[i + 1][0] - h3).toFixed(1)},${(P[i + 1][1] - tg[i + 1] * h3).toFixed(1)} ${P[i + 1][0].toFixed(1)},${P[i + 1][1].toFixed(1)}`;
+      }
+    }
+    s0 = e;
+  }
+  return d;
 }
 function median(a) { const s2 = [...a].sort((p, q) => p - q); return s2.length ? s2[Math.floor(s2.length / 2)] : 0; }
 async function loadSpeed() { try { SPEED = await api('GET', 'api/speed?days=' + speedDays); renderSpeed(); } catch (e) { /* shown next time */ } if (SPEED && SPEED.running) setTimeout(loadSpeed, 5000); }
