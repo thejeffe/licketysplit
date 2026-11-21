@@ -192,3 +192,5 @@ dialog form{display:grid;gap:10px}
 dialog h2{margin:0}
 .acts{display:flex;gap:8px;justify-content:flex-end;align-items:center}
 .acts .msg{margin-right:auto}
+/* status-bar cover: in the full-screen app the page scrolls under the (see-through) status bar; this strip stays on top so no button ever sits under it */
+body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:1000;pointer-events:none}
