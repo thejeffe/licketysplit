@@ -17,7 +17,7 @@ canvas[hidden]{display:none}
 button.ghost{background:transparent;color:inherit;box-shadow:inset 0 0 0 2px currentColor}
 </style></head><body><main>
 <img id="pic" src="/offline.gif" alt="The super-duck, dazed after a crash landing" width="320" height="240">
-<canvas id="game" hidden aria-label="A little jumping game"></canvas>
+<canvas id="game" hidden aria-label="Fly the super-duck"></canvas>
 <h1>Lickety Split crash-landed.</h1>
 <p>The server isn’t answering. Our hero will be back shortly, and this page reloads by itself.</p>
 <div class="btns"><button type="button" id="play">Play while you wait</button> <button type="button" id="again" class="ghost">Try again</button></div>
@@ -35,62 +35,96 @@ if (!preview) setInterval(function () { n--; if (n <= 0) { n = 5; check(); } st.
 if (!preview) document.getElementById('again').onclick = function () { st.textContent = 'Checking…'; check(); setTimeout(function () { location.reload(); }, 600); };
 if (!preview) window.addEventListener('online', check);
 </script><script>
-window.GAME = { key: 'licketysplit-flap-best', ground: '#16212b', line: '#2c4152', text: '#4dd4ac', over: 'Packet loss! The duck went down.',
-  sky: function (x, W, H, t) { x.fillStyle = '#0D141B'; x.fillRect(0, 0, W, H); x.strokeStyle = '#1e2e3b'; x.lineWidth = 1; for (var i = 0; i < 8; i++) { var y = 20 + i * 15; x.beginPath(); x.moveTo(0, y); x.lineTo(W, y); x.stroke(); }
-    x.fillStyle = '#4dd4ac33'; for (var i = 0; i < 6; i++) { var cx = ((i * 70 - t * 40) % (W + 60) + W + 60) % (W + 60) - 30; x.fillRect(cx, 30 + (i * 23) % 70, 20, 4); } },
-  hero: { w: 34, h: 32, draw: function (x, t, air, dead) {
-    var b = air ? 0 : Math.abs(Math.sin(t * 14)) * 2; x.translate(0, -b); var f = air ? Math.sin(t * 30) * 6 : 0;
-    x.fillStyle = '#e03131'; x.beginPath(); x.moveTo(4, -20); x.lineTo(-14, -16 + Math.sin(t * 12) * 3); x.lineTo(-12, -8); x.lineTo(6, -12); x.fill();
-    x.fillStyle = '#ffd43b'; x.beginPath(); x.ellipse(14, -12, 13, 10, 0, 0, 7); x.fill(); x.beginPath(); x.arc(24, -24, 8, 0, 7); x.fill();
-    x.fillStyle = '#f2b100'; x.beginPath(); x.ellipse(10, -14 - f, 8, 4, -0.4, 0, 7); x.fill();
-    x.fillStyle = '#ff922b'; x.beginPath(); x.moveTo(30, -26); x.lineTo(38, -23); x.lineTo(30, -21); x.fill(); x.fillRect(10, -3, 3, 3); x.fillRect(17, -3, 3, 3);
-    x.fillStyle = '#1971c2'; x.fillRect(19, -28, 12, 4);
-    x.fillStyle = '#111'; if (dead) { x.font = '700 7px sans-serif'; x.fillText('xx', 22, -22); } else x.fillRect(26, -27, 2, 2); } },
-  obs: [
-    { w: 16, h: 26, draw: function (x, w, h) { x.fillStyle = '#ff6b6b'; x.beginPath(); x.moveTo(0, 0); x.lineTo(4, -h); x.lineTo(8, -8); x.lineTo(12, -h + 6); x.lineTo(16, 0); x.fill(); } },
-    { w: 28, h: 18, draw: function (x, w, h) { x.fillStyle = '#868e96'; x.fillRect(0, -h, w, h); x.fillStyle = '#fff'; x.font = '700 8px sans-serif'; x.fillText('LAG', 6, -6); } },
-    { w: 20, h: 34, draw: function (x, w, h) { x.fillStyle = '#495057'; x.fillRect(4, -h, 12, h); x.fillStyle = '#ff6b6b'; x.beginPath(); x.arc(10, -h + 6, 3, 0, 7); x.fill(); x.fillStyle = '#4dd4ac'; x.fillRect(6, -h + 14, 8, 2); } }
-  ] };
-// Play while you wait: a tiny jump-over-things runner, drawn on a canvas (no files needed, so it works offline)
+// Play while you wait: the super-duck flies through the internet weather. Steer up and down, dodge the junk, grab the Wi-Fi bars.
 (function () {
-  var T = window.GAME, cv = document.getElementById('game'), pic = document.getElementById('pic'), btn = document.getElementById('play');
-  var W = 320, H = 170, G = 140, x = cv.getContext('2d'), dpr = Math.min(3, window.devicePixelRatio || 1);
-  cv.width = W * dpr; cv.height = H * dpr; x.scale(dpr, dpr);
-  var best = 0; try { best = +localStorage.getItem(T.key) || 0; } catch (e) {}
-  var s, raf = 0, last = 0;
-  function reset() { s = { y: 0, vy: 0, obs: [], next: 60, sp: 150, t: 0, score: 0, over: false, deco: [] }; }
-  function jump() {
-    if (!s || s.over) { reset(); return; }
-    if (s.y === 0) { s.vy = 420; }
+  var cv = document.getElementById('game'), pic = document.getElementById('pic'), btn = document.getElementById('play');
+  var W = 320, H = 200, x = cv.getContext('2d'), dpr = Math.min(3, window.devicePixelRatio || 1), KEY = 'licketysplit-flight-best';
+  cv.style.aspectRatio = W + '/' + H; cv.width = W * dpr; cv.height = H * dpr; x.scale(dpr, dpr);
+  var best = 0; try { best = +localStorage.getItem(KEY) || 0; } catch (e) {}
+  var s, raf = 0, last = 0, keys = {};
+  function reset() { s = { y: H / 2, ty: null, vy: 0, t: 0, dist: 0, bars: 0, lives: 3, over: false, next: 1, objs: [], hurt: 0, clouds: [], hills: 0, msg: '', msgT: 0 };
+    for (var i = 0; i < 6; i++) s.clouds.push({ x: Math.random() * W, y: 20 + Math.random() * 90, r: 10 + Math.random() * 14, z: 0.3 + Math.random() * 0.5 }); }
+  function start() { pic.hidden = true; cv.hidden = false; btn.textContent = 'Start over'; reset(); last = 0; cancelAnimationFrame(raf); raf = requestAnimationFrame(loop); }
+  btn.onclick = function () { start(); };
+  function aim(e) { var r = cv.getBoundingClientRect(); s.ty = (e.clientY - r.top) / r.height * H; }
+  cv.addEventListener('pointerdown', function (e) { e.preventDefault(); if (s.over) { reset(); return; } aim(e); cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', function (e) { if (e.buttons || e.pointerType === 'mouse') aim(e); });
+  addEventListener('keydown', function (e) { if (cv.hidden) return; if (/Arrow(Up|Down)/.test(e.code)) { e.preventDefault(); keys[e.code] = 1; s.ty = null; } if (e.code === 'Space' && s.over) { e.preventDefault(); reset(); } });
+  addEventListener('keyup', function (e) { delete keys[e.code]; });
+  // things in the sky: [kind, width, height, can it be anywhere (or only on the ground)]
+  var KINDS = ['tower', 'wall', 'goose', 'balloon', 'cable', 'bars', 'bars'];
+  function spawn() {
+    var k = KINDS[Math.floor(Math.random() * KINDS.length)], o = { k: k, x: W + 30, y: 0, w: 22, h: 22, ph: Math.random() * 6 };
+    if (k === 'tower') { o.w = 18; o.h = 60 + Math.random() * 50; o.y = H - 14 - o.h; }
+    else if (k === 'wall') { o.w = 24; o.h = 40 + Math.random() * 40; o.y = Math.random() < 0.5 ? 0 : H - 14 - o.h; }
+    else if (k === 'goose') { o.w = 26; o.h = 14; o.y = 20 + Math.random() * 120; o.vy = 0; }
+    else if (k === 'balloon') { o.w = 18; o.h = 30; o.y = 30 + Math.random() * 100; }
+    else if (k === 'cable') { o.w = 70; o.h = 16; o.y = 25 + Math.random() * 110; }
+    else { o.w = 18; o.h = 16; o.y = 20 + Math.random() * 130; }
+    s.objs.push(o);
   }
-  function start() { pic.hidden = true; cv.hidden = false; btn.textContent = 'Jump'; reset(); last = 0; cancelAnimationFrame(raf); raf = requestAnimationFrame(loop); }
-  btn.onclick = function () { if (cv.hidden) start(); else jump(); };
-  cv.addEventListener('pointerdown', function (e) { e.preventDefault(); jump(); });
-  addEventListener('keydown', function (e) { if (cv.hidden) return; if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); jump(); } });
-  function hit(o) { var px = 40, pw = T.hero.w - 8, py = G - s.y - T.hero.h + 4; return px + pw > o.x + 3 && px < o.x + o.w - 3 && py + T.hero.h - 6 > G - o.h; }
   function loop(ts) {
     var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0; last = ts;
-    if (!s.over) {
-      s.t += dt; s.sp = 150 + s.t * 6; s.score += dt * 10;
-      s.vy -= 1300 * dt; s.y = Math.max(0, s.y + s.vy * dt); if (s.y === 0) s.vy = 0;
-      s.next -= s.sp * dt;
-      if (s.next <= 0) { var k = T.obs[Math.floor(Math.random() * T.obs.length)]; s.obs.push({ x: W + 10, w: k.w, h: k.h, k: k }); s.next = 140 + Math.random() * 160 + s.sp * 0.25; }
-      for (var i = s.obs.length - 1; i >= 0; i--) { var o = s.obs[i]; o.x -= s.sp * dt; if (o.x < -40) s.obs.splice(i, 1); else if (hit(o)) { s.over = true; if (s.score > best) { best = Math.floor(s.score); try { localStorage.setItem(T.key, best); } catch (e) {} } } }
-    }
+    if (!s.over) step(dt);
     draw(); raf = requestAnimationFrame(loop);
   }
+  function step(dt) {
+    s.t += dt; s.hurt -= dt; s.msgT -= dt;
+    var sp = 110 + s.t * 3; s.dist += sp * dt / 10;
+    var up = keys.ArrowUp ? -1 : keys.ArrowDown ? 1 : 0;
+    if (up) s.vy += up * 700 * dt; else if (s.ty != null) s.vy += Math.max(-1, Math.min(1, (s.ty - s.y) / 25)) * 700 * dt;
+    s.vy *= Math.pow(0.04, dt); s.y += s.vy * dt; s.y = Math.max(14, Math.min(H - 26, s.y));
+    s.next -= dt; if (s.next <= 0) { spawn(); s.next = Math.max(0.45, 1.3 - s.t * 0.012) * (0.6 + Math.random() * 0.7); }
+    s.clouds.forEach(function (c) { c.x -= sp * c.z * dt; if (c.x < -40) { c.x = W + 40; c.y = 20 + Math.random() * 90; } });
+    s.hills += sp * 0.5 * dt;
+    for (var i = s.objs.length - 1; i >= 0; i--) {
+      var o = s.objs[i]; o.x -= sp * dt * (o.k === 'goose' ? 1.4 : 1); if (o.k === 'goose') o.y += Math.sin(s.t * 3 + o.ph) * 30 * dt; if (o.k === 'balloon') o.y += Math.sin(s.t * 2 + o.ph) * 12 * dt;
+      if (o.x < -80) { s.objs.splice(i, 1); continue; }
+      var dx = 52, dy = s.y; // the duck's box: x 40..64, y-10..+10
+      if (dx + 10 > o.x + 2 && dx - 12 < o.x + o.w - 2 && dy + 9 > o.y + 2 && dy - 9 < o.y + o.h - 2) {
+        s.objs.splice(i, 1);
+        if (o.k === 'bars') { s.bars++; s.msg = '+5'; s.msgT = 0.5; }
+        else if (s.hurt <= 0) { s.lives--; s.hurt = 1.2; s.msg = { tower: 'Bonk! A cell tower.', wall: 'Firewall!', goose: 'Honk!', balloon: 'Pop!', cable: 'Tangled in cable!' }[o.k]; s.msgT = 1; if (s.lives <= 0) end(); }
+      }
+    }
+  }
+  function score() { return Math.floor(s.dist) + s.bars * 5; }
+  function end() { s.over = true; var sc = score(); if (sc > best) { best = sc; try { localStorage.setItem(KEY, best); } catch (e) {} } }
+  function cloud(cx, cy, r, col) { x.fillStyle = col; x.beginPath(); x.arc(cx, cy, r, 0, 7); x.arc(cx + r * 0.9, cy + 2, r * 0.75, 0, 7); x.arc(cx - r * 0.9, cy + 3, r * 0.7, 0, 7); x.fill(); }
   function draw() {
-    x.clearRect(0, 0, W, H); T.sky(x, W, H, s.t);
-    x.fillStyle = T.ground; x.fillRect(0, G, W, H - G);
-    x.strokeStyle = T.line; x.lineWidth = 2; x.beginPath(); x.moveTo(0, G + 1); x.lineTo(W, G + 1); x.stroke();
-    // ground speckles scroll by
-    x.fillStyle = T.line; for (var i = 0; i < 14; i++) { var gx = ((i * 53 - s.t * s.sp) % W + W) % W; x.fillRect(gx, G + 8 + (i * 7) % 18, 3 + (i % 3), 2); }
-    s.obs.forEach(function (o) { x.save(); x.translate(o.x, G); o.k.draw(x, o.w, o.h); x.restore(); });
-    x.save(); x.translate(40, G - s.y); T.hero.draw(x, s.t, s.y > 0, s.over); x.restore();
-    x.fillStyle = T.text; x.font = '700 13px system-ui,sans-serif'; x.textAlign = 'right';
-    x.fillText(String(Math.floor(s.score)).padStart(5, '0') + (best ? '   best ' + best : ''), W - 10, 20);
-    if (s.over) { x.textAlign = 'center'; for (var fs = 18; fs > 10; fs--) { x.font = '800 ' + fs + 'px system-ui,sans-serif'; if (x.measureText(T.over).width < W - 24) break; } x.fillText(T.over, W / 2, 62); x.font = '600 12px system-ui,sans-serif'; x.fillText('tap to try again', W / 2, 82); }
-    else if (s.t < 2.2) { x.textAlign = 'center'; x.font = '600 12px system-ui,sans-serif'; x.fillText('tap to jump', W / 2, 62); }
+    var g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#1d4f7a'); g.addColorStop(1, '#7cc4e8'); x.fillStyle = g; x.fillRect(0, 0, W, H);
+    s.clouds.forEach(function (c) { cloud(c.x, c.y, c.r, 'rgba(255,255,255,' + (0.35 + c.z * 0.6) + ')'); });
+    x.fillStyle = '#3f8f5a'; x.beginPath(); x.moveTo(0, H); for (var i = 0; i <= W; i += 8) x.lineTo(i, H - 22 - Math.sin((i + s.hills) / 40) * 8 - Math.sin((i + s.hills) / 17) * 3); x.lineTo(W, H); x.fill();
+    x.fillStyle = '#2b6b3f'; x.fillRect(0, H - 14, W, 14);
+    s.objs.forEach(function (o) {
+      x.save(); x.translate(o.x, o.y);
+      if (o.k === 'tower') { x.strokeStyle = '#ced4da'; x.lineWidth = 2; x.beginPath(); x.moveTo(0, o.h); x.lineTo(o.w / 2, 0); x.lineTo(o.w, o.h); for (var j = 10; j < o.h; j += 12) { x.moveTo(o.w / 2 - j / o.h * o.w / 2, j); x.lineTo(o.w / 2 + j / o.h * o.w / 2, j); } x.stroke(); x.fillStyle = Math.floor(s.t * 3) % 2 ? '#ff6b6b' : '#7a2a2a'; x.beginPath(); x.arc(o.w / 2, -2, 3, 0, 7); x.fill(); }
+      else if (o.k === 'wall') { x.fillStyle = '#a63d2a'; x.fillRect(0, 0, o.w, o.h); x.strokeStyle = '#6e2417'; x.lineWidth = 1; for (var j = 0; j < o.h; j += 8) { x.beginPath(); x.moveTo(0, j); x.lineTo(o.w, j); x.stroke(); var off = (j / 8) % 2 ? 6 : 12; x.beginPath(); x.moveTo(off, j); x.lineTo(off, j + 8); x.stroke(); }
+        x.fillStyle = '#ffa94d'; var fy = o.y === 0 ? o.h : 0; for (var j = 0; j < 3; j++) { x.beginPath(); x.moveTo(j * 8, fy); x.lineTo(j * 8 + 4, fy + (o.y === 0 ? 1 : -1) * (6 + Math.sin(s.t * 15 + j) * 3)); x.lineTo(j * 8 + 8, fy); x.fill(); } }
+      else if (o.k === 'goose') { var f = Math.sin(s.t * 14 + o.ph) * 6; x.fillStyle = '#dee2e6'; x.beginPath(); x.ellipse(14, 8, 11, 5, 0, 0, 7); x.fill(); x.beginPath(); x.moveTo(10, 7); x.lineTo(18, 7 - f - 4); x.lineTo(20, 8); x.fill(); x.fillStyle = '#343a40'; x.fillRect(0, 3, 6, 3); x.fillStyle = '#212529'; x.beginPath(); x.arc(4, 4, 3, 0, 7); x.fill(); x.fillStyle = '#ff922b'; x.beginPath(); x.moveTo(1, 3); x.lineTo(-4, 5); x.lineTo(1, 6); x.fill(); }
+      else if (o.k === 'balloon') { x.strokeStyle = '#ddd'; x.lineWidth = 1; x.beginPath(); x.moveTo(9, 18); x.lineTo(9 + Math.sin(s.t * 3) * 2, 30); x.stroke(); x.fillStyle = '#e64980'; x.beginPath(); x.ellipse(9, 9, 9, 11, 0, 0, 7); x.fill(); x.fillStyle = '#fff'; x.font = '700 6px sans-serif'; x.fillText('404', 3, 11); }
+      else if (o.k === 'cable') { x.strokeStyle = '#ffd43b'; x.lineWidth = 3; x.beginPath(); x.moveTo(0, 8); for (var j = 0; j <= o.w; j += 6) x.lineTo(j, 8 + Math.sin(j / 5 + s.t * 4) * 6); x.stroke(); x.strokeStyle = '#4dabf7'; x.lineWidth = 2; x.beginPath(); x.moveTo(0, 8); for (var j = 0; j <= o.w; j += 6) x.lineTo(j, 8 + Math.cos(j / 4 + s.t * 3) * 7); x.stroke(); }
+      else { x.fillStyle = '#4dd4ac'; for (var j = 0; j < 4; j++) x.fillRect(j * 5, 16 - (j + 1) * 4, 3.5, (j + 1) * 4); }
+      x.restore();
+    });
+    // the super-duck
+    x.save(); x.translate(40, s.y); x.rotate(Math.max(-0.4, Math.min(0.4, s.vy / 400)));
+    if (s.hurt > 0 && Math.floor(s.hurt * 12) % 2) x.globalAlpha = 0.35;
+    var f = Math.sin(s.t * 22) * 7;
+    x.fillStyle = '#e03131'; x.beginPath(); x.moveTo(4, -6); x.lineTo(-16, -4 + Math.sin(s.t * 16) * 4); x.lineTo(-14, 6 + Math.sin(s.t * 16 + 1) * 3); x.lineTo(4, 2); x.fill();
+    x.fillStyle = '#ffd43b'; x.beginPath(); x.ellipse(12, 0, 13, 8, 0, 0, 7); x.fill(); x.beginPath(); x.arc(25, -5, 7, 0, 7); x.fill();
+    x.fillStyle = '#f2b100'; x.beginPath(); x.ellipse(10, -3 - f / 2, 9, 4, -0.5 + f / 20, 0, 7); x.fill();
+    x.fillStyle = '#ff922b'; x.beginPath(); x.moveTo(31, -6); x.lineTo(39, -3); x.lineTo(31, -1); x.fill();
+    x.fillStyle = '#1971c2'; x.fillRect(20, -9, 12, 3.5); x.fillStyle = '#111'; x.fillRect(27, -8, 2, 2);
+    x.restore(); x.globalAlpha = 1;
+    // speed lines
+    x.strokeStyle = 'rgba(255,255,255,.5)'; x.lineWidth = 1; for (var i = 0; i < 3; i++) { var lx = 10 - ((s.t * 300 + i * 13) % 30); x.beginPath(); x.moveTo(lx, s.y - 4 + i * 4); x.lineTo(lx + 10, s.y - 4 + i * 4); x.stroke(); }
+    x.textAlign = 'right'; x.fillStyle = '#fff'; x.font = '700 12px system-ui,sans-serif'; x.fillText(String(score()).padStart(5, '0') + (best ? '   best ' + best : ''), W - 8, 16);
+    x.textAlign = 'left'; x.fillStyle = '#e03131'; x.font = '13px sans-serif'; x.fillText('♥♥♥'.slice(0, Math.max(0, s.lives)), 8, 16);
+    x.textAlign = 'center'; x.fillStyle = '#fff';
+    if (s.over) { x.fillStyle = '#0D141Bcc'; x.fillRect(30, 66, W - 60, 56); x.fillStyle = '#4dd4ac'; x.font = '800 16px system-ui,sans-serif'; x.fillText('Packet lost! Score ' + score(), W / 2, 90); x.font = '600 12px system-ui,sans-serif'; x.fillText('tap to fly again', W / 2, 110); }
+    else if (s.msgT > 0) { x.font = '800 14px system-ui,sans-serif'; x.fillText(s.msg, W / 2, 40); }
+    else if (s.t < 3) { x.font = '700 12px system-ui,sans-serif'; x.fillText('Drag up and down to fly (or ↑ ↓).', W / 2, 40); x.fillText('Dodge the junk, grab the Wi-Fi bars!', W / 2, 56); }
   }
 })();
 </script>
