@@ -552,7 +552,8 @@ function cleanApps(list) {
     const name = String(a && a.name || '').trim().slice(0, 40);
     if (!name) throw new Error('Every app needs a name.');
     const url = web(a.url, name + '’s address'); if (!url) throw new Error('Give ' + name + ' an address.');
-    return { name, url, about: String(a.about || '').trim().slice(0, 120), icon: web(a.icon, name + '’s icon') };
+    const icon = String(a.icon || '').trim(); // an address, or one of Lickety Split's own (apps/….svg)
+    return { name, url, about: String(a.about || '').trim().slice(0, 120), icon: /^apps\/[a-z0-9-]+\.(svg|png)$/.test(icon) ? icon : web(icon, name + '’s icon') };
   });
 }
 function cleanDevice(b) {

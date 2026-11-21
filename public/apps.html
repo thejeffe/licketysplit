@@ -76,7 +76,7 @@
   list.addEventListener('click', function (e) { var b = e.target.closest('.share'); if (b) share(apps[+b.dataset.i]); });
   function row(a) {
     var d = document.createElement('div'); d.className = 'row';
-    d.innerHTML = '<input data-k="name" placeholder="Name" maxlength="40"><input data-k="url" placeholder="https://…" inputmode="url" autocapitalize="off" spellcheck="false"><input data-k="about" placeholder="What it does (optional)" maxlength="120"><input data-k="icon" placeholder="Icon address (optional)" inputmode="url" autocapitalize="off" spellcheck="false">'
+    d.innerHTML = '<input data-k="name" placeholder="Name" maxlength="40"><input data-k="url" placeholder="https://…" inputmode="url" autocapitalize="off" spellcheck="false"><input data-k="about" placeholder="What it does (optional)" maxlength="120"><input data-k="icon" placeholder="Icon address or apps/name.svg (optional)" inputmode="url" autocapitalize="off" spellcheck="false">'
       + '<div class="acts"><button type="button" data-a="up" title="Move up">↑</button><button type="button" data-a="down" title="Move down">↓</button><button type="button" data-a="del">Remove</button></div>';
     ['name', 'url', 'about', 'icon'].forEach(function (k) { d.querySelector('[data-k=' + k + ']').value = a[k] || ''; });
     return d;

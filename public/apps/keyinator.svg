@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><title>Keyinator</title>
+<rect width="512" height="512" rx="112" fill="#0f1115"/>
+<g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="18">
+ <g stroke="#e9eef3"><rect x="92" y="84" width="200" height="344" rx="28"/>
+  <circle cx="148" cy="160" r="14"/><circle cx="192" cy="160" r="14"/><circle cx="236" cy="160" r="14"/>
+  <circle cx="148" cy="212" r="14"/><circle cx="192" cy="212" r="14"/><circle cx="236" cy="212" r="14"/>
+  <circle cx="148" cy="264" r="14"/><circle cx="192" cy="264" r="14"/><circle cx="236" cy="264" r="14"/><circle cx="192" cy="316" r="14"/></g>
+ <g stroke="#f2b33d"><circle cx="330" cy="330" r="62"/><path d="M374 374 L436 436 M408 408 l-26 26 M428 428 l-20 20"/></g>
+ <circle cx="330" cy="330" r="16" fill="#f2b33d" stroke="none"/>
+ <path stroke="#3ccf6b" d="M134 372 h116"/>
+</g></svg>

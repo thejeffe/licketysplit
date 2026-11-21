@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><title>Tree-mote Control</title>
+<rect width="512" height="512" rx="112" fill="#0b1a12"/>
+<g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="18">
+ <g stroke="#e9eef3"><path d="M256 150 L176 72 M256 150 L344 62"/><circle cx="176" cy="72" r="12"/><circle cx="344" cy="62" r="12"/>
+  <rect x="62" y="150" width="388" height="268" rx="40"/><rect x="96" y="184" width="240" height="200" rx="44"/>
+  <path d="M130 418 L112 456 M382 418 L400 456"/><circle cx="394" cy="230" r="20"/><circle cx="394" cy="296" r="20"/><path d="M372 350 h44"/></g>
+ <g stroke="#3ccf6b"><path d="M216 214 L268 290 H244 L290 352 H142 L188 290 H164 Z"/><path d="M216 352 v18"/></g>
+ <path stroke="#ff4a3d" d="M216 196 l0 0"/><circle cx="216" cy="203" r="11" fill="#ffd23b" stroke="none"/>
+</g></svg>
