@@ -38,9 +38,7 @@
 <body>
 <header class="banner" id="banner"><canvas id="bannerCv" aria-hidden="true"></canvas><div class="bn"><img src="icon.svg" alt="" width="40" height="40"><div class="title"><h1>Apps</h1><span>Everything the house runs, one tap away</span></div></div></header>
 <main class="wrap">
- <div class="top">
-  <div class="topacts"><button type="button" onclick="location.href='/'">← Lickety Split</button><button type="button" id="editBtn">Edit</button></div>
- </div>
+ <div class="top"><h2 style="margin:0">All apps</h2><div class="menu"><button type="button" id="menuBtn" class="menubtn" aria-haspopup="menu" aria-expanded="false" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><div class="menupop" id="menuPop" role="menu" hidden><button type="button" role="menuitem" onclick="location.href='/'"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg><span>Lickety Split</span></button><button type="button" role="menuitem" id="editBtn"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg><span>Edit the list</span></button></div></div></div>
  <section class="apps" id="list" aria-live="polite"><p class="note">Loading…</p></section>
  <section class="box ed" id="editor" hidden>
   <h2>Edit the apps</h2>
@@ -98,6 +96,6 @@
 })();
 if ('serviceWorker' in navigator) addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
 </script>
-<script src="banner.js"></script>
+<script src="banner.js"></script><script src="menu.js"></script>
 </body>
 </html>

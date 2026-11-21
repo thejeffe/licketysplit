@@ -20,14 +20,12 @@
 <body>
 <header class="banner" id="banner"><canvas id="bannerCv" aria-hidden="true"></canvas><div class="bn"><img src="icon.svg" alt="" width="40" height="40"><div class="title"><h1>Lickety Split</h1><span>Watches the house, maps the network, keeps the firmware fresh</span></div></div></header>
 <main class="wrap">
- <div class="top">
-  <div class="topacts"><button type="button" onclick="location.href='apps.html'" title="All the house's apps">Apps</button><button type="button" id="refresh">Check for new builds</button><button type="button" id="reloadBtn" aria-label="Reload" title="Reload the page (for the home-screen app)">↻</button><button type="button" id="setBtn" aria-label="Settings" title="Settings">⚙</button></div>
- </div>
  <p class="msg" id="msg" role="status"></p>
  <nav class="tabs" role="tablist">
   <button type="button" role="tab" data-tab="status" aria-selected="false">Status <span class="n" id="statusCount"></span></button>
   <button type="button" role="tab" data-tab="fw" aria-selected="true">Firmware</button>
   <button type="button" role="tab" data-tab="net" aria-selected="false">Network <span class="n" id="netCount"></span></button>
+  <div class="menu"><button type="button" id="menuBtn" class="menubtn" aria-haspopup="menu" aria-expanded="false" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><div class="menupop" id="menuPop" role="menu" hidden><button type="button" role="menuitem" onclick="location.href='apps.html'"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg><span>Apps</span></button><button type="button" role="menuitem" id="refresh"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg><span>Check for new builds</span></button><button type="button" role="menuitem" id="reloadBtn"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg><span>Reload</span></button><button type="button" role="menuitem" id="setBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg><span>Settings</span></button></div></div>
  </nav>
 
  <section class="box" id="statusBox" data-pane="status" hidden>
@@ -171,6 +169,6 @@
 </dialog>
 <script src="app.js"></script>
 <script>/* installable app with an offline screen (sw.js) */if('serviceWorker' in navigator)addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})});</script>
-<script src="banner.js"></script>
+<script src="banner.js"></script><script src="menu.js"></script>
 </body>
 </html>

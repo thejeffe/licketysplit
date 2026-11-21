@@ -205,3 +205,21 @@ dialog h2{margin:0}
 @media (max-width:600px){.banner .title span{display:none}.banner .title h1{font-size:28px}}
 @media (prefers-reduced-motion:reduce){.banner .bn img{animation:none}}
 .wrap{padding-top:12px!important}
+
+/* the ☰ menu (all the page's actions live here, not in the header) */
+.tabs{align-items:flex-end}
+.menu{position:relative;margin-left:auto;align-self:center}
+.menubtn{width:42px;height:38px;padding:0;display:grid;place-items:center;border-radius:10px}
+.menubtn svg,.menupop svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.menubtn[aria-expanded="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.menupop{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:220px;display:grid;padding:6px;gap:2px;background:var(--panel);border:1px solid var(--rule);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.35)}
+.menupop button{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:0;background:none;padding:10px 12px;border-radius:8px;font-size:15px}
+.menupop button:hover:not(:disabled),.menupop button:focus-visible{background:var(--row)}
+.menupop button svg{color:var(--accent);flex:none}
+.top .menu{margin-left:auto}
+.tabs [role="tab"]{white-space:nowrap}
+.tabs .menubtn{border:1px solid var(--rule);border-radius:10px;padding:0;margin-bottom:6px;background:var(--row);color:var(--ink)}
+.tabs .menubtn[aria-expanded="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.tabs .menupop button{font:500 15px var(--body);text-transform:none;letter-spacing:normal;border:0;border-radius:8px;color:var(--ink);padding:10px 12px}
+@media (max-width:420px){.tabs [role="tab"]{padding:8px 9px;font-size:17px}}
+#msg:empty{display:none}
