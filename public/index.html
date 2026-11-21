@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Lickety Split</title>
 <meta name="description" content="Watches the house, maps the network and keeps the firmware fresh: home checks with email alerts, every device on the network, ESP32 flashing and updates.">
 <meta name="theme-color" content="#0D141B">
@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@1,700;1,800&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="style.css">
 <script type="module" src="vendor/esp-web-tools/install-button.js"></script>
-</head>
+<style>html{touch-action:manipulation;-webkit-text-size-adjust:100%}</style><script>/* no zooming on phones (iPhone Safari ignores user-scalable=no for pinches, so stop the gesture itself) */['gesturestart','gesturechange'].forEach(function(k){document.addEventListener(k,function(e){e.preventDefault()},{passive:false})});document.addEventListener('touchmove',function(e){if(e.touches.length>1||(e.scale!==undefined&&e.scale!==1))e.preventDefault()},{passive:false});</script></head>
 <body>
 <main class="wrap">
  <header class="top">
@@ -24,7 +24,7 @@
    <img src="icon.svg" alt="" width="52" height="52">
    <div class="title"><h1>Lickety Split</h1><span>Watches the house, maps the network, keeps the firmware fresh</span></div>
   </div>
-  <div class="topacts"><button type="button" id="refresh">Check for new builds</button><button type="button" id="reloadBtn" aria-label="Reload" title="Reload the page (for the home-screen app)">↻</button><button type="button" id="setBtn" aria-label="Settings" title="Settings">⚙</button></div>
+  <div class="topacts"><button type="button" onclick="location.href='apps.html'" title="All the house's apps">Apps</button><button type="button" id="refresh">Check for new builds</button><button type="button" id="reloadBtn" aria-label="Reload" title="Reload the page (for the home-screen app)">↻</button><button type="button" id="setBtn" aria-label="Settings" title="Settings">⚙</button></div>
  </header>
  <p class="msg" id="msg" role="status"></p>
  <nav class="tabs" role="tablist">

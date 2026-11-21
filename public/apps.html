@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Apps · Lickety Split</title>
+<meta name="description" content="All the house's web apps in one place, with a share button for each.">
+<meta name="theme-color" content="#0D141B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Lickety Split">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="style.css">
+<style>html{touch-action:manipulation}
+.apps{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.app{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:12px;min-width:0}
+.app a.open{display:contents;color:inherit;text-decoration:none}
+.app .ic{width:52px;height:52px;border-radius:12px;background:var(--row);display:grid;place-items:center;overflow:hidden;font:italic 800 26px var(--display);color:var(--accent)}
+.app .ic img{width:100%;height:100%;object-fit:cover}
+.app b{display:block;font:italic 700 21px/1.1 var(--display);letter-spacing:.02em;text-transform:uppercase}
+.app small{display:block;color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis}
+.app .host{font:12px var(--mono);white-space:nowrap}
+.share{width:42px;height:42px;padding:0;display:grid;place-items:center;border-radius:50%}
+.share svg{width:20px;height:20px}
+.ed{display:grid;gap:8px}
+.ed .row{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--row);border:1px solid var(--rule);border-radius:10px;padding:8px}
+.ed .row input{font:14px var(--body);padding:7px 8px;border-radius:7px;border:1px solid var(--rule);background:var(--panel);color:var(--ink);min-width:0}
+.ed .row .acts{grid-column:1/-1;display:flex;gap:6px;justify-content:flex-end}
+.ed .row .acts button{padding:4px 10px;font-size:13px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+#toast{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:20px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.on{opacity:1}
+</style>
+<script>/* no zooming on phones (iPhone Safari ignores user-scalable=no for pinches, so stop the gesture itself) */['gesturestart','gesturechange'].forEach(function(k){document.addEventListener(k,function(e){e.preventDefault()},{passive:false})});document.addEventListener('touchmove',function(e){if(e.touches.length>1||(e.scale!==undefined&&e.scale!==1))e.preventDefault()},{passive:false});</script>
+</head>
+<body>
+<main class="wrap">
+ <header class="top">
+  <div class="brand">
+   <img src="icon.svg" alt="" width="52" height="52">
+   <div class="title"><h1>Apps</h1><span>Everything the house runs, one tap away</span></div>
+  </div>
+  <div class="topacts"><button type="button" onclick="location.href='/'">← Lickety Split</button><button type="button" id="editBtn">Edit</button></div>
+ </header>
+ <section class="apps" id="list" aria-live="polite"><p class="note">Loading…</p></section>
+ <section class="box ed" id="editor" hidden>
+  <h2>Edit the apps</h2>
+  <p class="note">Name and address are needed; the line under the name and the icon address are optional (no icon shows the first letter).</p>
+  <div id="rows" class="ed"></div>
+  <div class="bar"><button type="button" id="addBtn">+ Add an app</button><span style="flex:1"></span><span class="msg" id="msg" role="status"></span><button type="button" id="cancelBtn">Cancel</button><button type="button" id="saveBtn" class="pri">Save</button></div>
+ </section>
+</main>
+<div id="toast" role="status"></div>
+<script>
+(function () {
+  var apps = [], list = document.getElementById('list'), rows = document.getElementById('rows'), ed = document.getElementById('editor');
+  var SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); }
+  function host(u) { try { return new URL(u).host; } catch (e) { return u; } }
+  function toast(t) { var el = document.getElementById('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(function () { el.classList.remove('on'); }, 1800); }
+  function share(a) {
+    var data = { title: a.name, text: a.about ? a.name + ': ' + a.about : a.name, url: a.url };
+    if (navigator.share) { navigator.share(data).catch(function () {}); return; }
+    (navigator.clipboard ? navigator.clipboard.writeText(a.url) : Promise.reject()).then(function () { toast('Link copied: ' + host(a.url)); }, function () { prompt('Copy this link', a.url); });
+  }
+  function show() {
+    if (!apps.length) { list.innerHTML = '<p class="note">No apps yet. Tap Edit to add them.</p>'; return; }
+    list.innerHTML = apps.map(function (a, i) {
+      var ic = a.icon ? '<img src="' + esc(a.icon) + '" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode(\'' + esc(a.name.charAt(0).toUpperCase()) + '\'))">' : esc(a.name.charAt(0).toUpperCase());
+      return '<div class="app"><a class="open" href="' + esc(a.url) + '"><span class="ic">' + ic + '</span><span style="min-width:0"><b>' + esc(a.name) + '</b>' + (a.about ? '<small>' + esc(a.about) + '</small>' : '') + '<small class="host">' + esc(host(a.url)) + '</small></span></a>'
+        + '<button type="button" class="share" data-i="' + i + '" title="Share ' + esc(a.name) + '" aria-label="Share ' + esc(a.name) + '">' + SHARE + '</button></div>';
+    }).join('');
+  }
+  list.addEventListener('click', function (e) { var b = e.target.closest('.share'); if (b) share(apps[+b.dataset.i]); });
+  function row(a) {
+    var d = document.createElement('div'); d.className = 'row';
+    d.innerHTML = '<input data-k="name" placeholder="Name" maxlength="40"><input data-k="url" placeholder="https://…" inputmode="url" autocapitalize="off" spellcheck="false"><input data-k="about" placeholder="What it does (optional)" maxlength="120"><input data-k="icon" placeholder="Icon address (optional)" inputmode="url" autocapitalize="off" spellcheck="false">'
+      + '<div class="acts"><button type="button" data-a="up" title="Move up">↑</button><button type="button" data-a="down" title="Move down">↓</button><button type="button" data-a="del">Remove</button></div>';
+    ['name', 'url', 'about', 'icon'].forEach(function (k) { d.querySelector('[data-k=' + k + ']').value = a[k] || ''; });
+    return d;
+  }
+  rows.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return; var r = b.closest('.row');
+    if (b.dataset.a === 'del') r.remove(); else if (b.dataset.a === 'up' && r.previousElementSibling) rows.insertBefore(r, r.previousElementSibling); else if (b.dataset.a === 'down' && r.nextElementSibling) rows.insertBefore(r.nextElementSibling, r);
+  });
+  function openEd() { rows.innerHTML = ''; apps.forEach(function (a) { rows.appendChild(row(a)); }); ed.hidden = false; document.getElementById('msg').textContent = ''; ed.scrollIntoView({ behavior: 'smooth' }); }
+  document.getElementById('editBtn').onclick = function () { if (ed.hidden) openEd(); else ed.hidden = true; };
+  document.getElementById('cancelBtn').onclick = function () { ed.hidden = true; };
+  document.getElementById('addBtn').onclick = function () { var r = row({}); rows.appendChild(r); r.querySelector('input').focus(); };
+  document.getElementById('saveBtn').onclick = function () {
+    var out = [].map.call(rows.children, function (r) { var a = {}; r.querySelectorAll('input').forEach(function (i) { a[i.dataset.k] = i.value.trim(); }); return a; })
+      .filter(function (a) { return a.name || a.url; });
+    var m = document.getElementById('msg'); m.className = 'msg'; m.textContent = 'Saving…';
+    fetch('api/apps', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apps: out }) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'Couldn’t save.'); return j; }); })
+      .then(function (j) { apps = j.apps; show(); ed.hidden = true; toast('Saved'); }, function (e) { m.className = 'msg err'; m.textContent = e.message; });
+  };
+  fetch('api/apps', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) { apps = j.apps || []; show(); }, function () { list.innerHTML = '<p class="note">Couldn’t load the apps.</p>'; });
+})();
+if ('serviceWorker' in navigator) addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
+</script>
+</body>
+</html>

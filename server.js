@@ -64,6 +64,7 @@ const DEFAULT_CONF = {
   monitor: monitorLib.DEFAULTS,     // Duck Hunting: home checks and email
   speed: { every: 60, minDown: 0, minUp: 0 },   // internet speed test: minutes between tests (0 = off), alert limits in Mbps (0 = none)
   devices: [],          // added on the page; saved in DATA_DIR/config.json
+  apps: [],             // the Apps page: links to the house's web apps (name, url, about, icon), kept in DATA_DIR/config.json
   net: DEFAULT_NET,
 };
 let conf;
@@ -543,6 +544,17 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
+function cleanApps(list) {
+  if (!Array.isArray(list)) throw new Error('Send a list of apps.');
+  if (list.length > 40) throw new Error('That’s a lot of apps: 40 at most.');
+  const web = (u, what) => { u = String(u || '').trim(); if (u && !/^https?:\/\/[^\s<>"]+$/i.test(u)) throw new Error(what + ' should start with https:// (or http://).'); return u.slice(0, 300); };
+  return list.map((a) => {
+    const name = String(a && a.name || '').trim().slice(0, 40);
+    if (!name) throw new Error('Every app needs a name.');
+    const url = web(a.url, name + '’s address'); if (!url) throw new Error('Give ' + name + ' an address.');
+    return { name, url, about: String(a.about || '').trim().slice(0, 120), icon: web(a.icon, name + '’s icon') };
+  });
+}
 function cleanDevice(b) {
   const name = String(b.name || '').trim().slice(0, 60), host = String(b.host || '').trim();
   if (!name) throw new Error('Give the device a name.');
@@ -576,6 +588,10 @@ const server = http.createServer(async (req, res) => {
       saveConf();
       if (conf.net.enabled && !wasOn) netTick();
       return send(res, 200, { owner: conf.owner, net: publicNet(), ping: publicPing(), monitor: publicMonitor(), speed: publicSpeed() });
+    }
+    if (p === '/api/apps' && req.method === 'GET') return send(res, 200, { apps: conf.apps || [] });
+    if (p === '/api/apps' && req.method === 'PUT') {
+      const b = await readBody(req); conf.apps = cleanApps(b.apps); saveConf(); return send(res, 200, { apps: conf.apps });
     }
     if (p === '/api/network' && req.method === 'GET') {
       return send(res, 200, { settings: publicNet(), scanning: !!netRun, error: netError, result: netResult, names: dnsNames(),
