@@ -36,14 +36,11 @@
 <script>/* no zooming on phones (iPhone Safari ignores user-scalable=no for pinches, so stop the gesture itself) */['gesturestart','gesturechange'].forEach(function(k){document.addEventListener(k,function(e){e.preventDefault()},{passive:false})});document.addEventListener('touchmove',function(e){if(e.touches.length>1||(e.scale!==undefined&&e.scale!==1))e.preventDefault()},{passive:false});</script>
 </head>
 <body>
+<header class="banner" id="banner"><canvas id="bannerCv" aria-hidden="true"></canvas><div class="bn"><img src="icon.svg" alt="" width="40" height="40"><div class="title"><h1>Apps</h1><span>Everything the house runs, one tap away</span></div></div></header>
 <main class="wrap">
- <header class="top">
-  <div class="brand">
-   <img src="icon.svg" alt="" width="52" height="52">
-   <div class="title"><h1>Apps</h1><span>Everything the house runs, one tap away</span></div>
-  </div>
+ <div class="top">
   <div class="topacts"><button type="button" onclick="location.href='/'">← Lickety Split</button><button type="button" id="editBtn">Edit</button></div>
- </header>
+ </div>
  <section class="apps" id="list" aria-live="polite"><p class="note">Loading…</p></section>
  <section class="box ed" id="editor" hidden>
   <h2>Edit the apps</h2>
@@ -101,5 +98,6 @@
 })();
 if ('serviceWorker' in navigator) addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
 </script>
+<script src="banner.js"></script>
 </body>
 </html>

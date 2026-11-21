@@ -18,14 +18,11 @@
 <script type="module" src="vendor/esp-web-tools/install-button.js"></script>
 <style>html{touch-action:manipulation;-webkit-text-size-adjust:100%}</style><script>/* no zooming on phones (iPhone Safari ignores user-scalable=no for pinches, so stop the gesture itself) */['gesturestart','gesturechange'].forEach(function(k){document.addEventListener(k,function(e){e.preventDefault()},{passive:false})});document.addEventListener('touchmove',function(e){if(e.touches.length>1||(e.scale!==undefined&&e.scale!==1))e.preventDefault()},{passive:false});</script></head>
 <body>
+<header class="banner" id="banner"><canvas id="bannerCv" aria-hidden="true"></canvas><div class="bn"><img src="icon.svg" alt="" width="40" height="40"><div class="title"><h1>Lickety Split</h1><span>Watches the house, maps the network, keeps the firmware fresh</span></div></div></header>
 <main class="wrap">
- <header class="top">
-  <div class="brand">
-   <img src="icon.svg" alt="" width="52" height="52">
-   <div class="title"><h1>Lickety Split</h1><span>Watches the house, maps the network, keeps the firmware fresh</span></div>
-  </div>
+ <div class="top">
   <div class="topacts"><button type="button" onclick="location.href='apps.html'" title="All the house's apps">Apps</button><button type="button" id="refresh">Check for new builds</button><button type="button" id="reloadBtn" aria-label="Reload" title="Reload the page (for the home-screen app)">↻</button><button type="button" id="setBtn" aria-label="Settings" title="Settings">⚙</button></div>
- </header>
+ </div>
  <p class="msg" id="msg" role="status"></p>
  <nav class="tabs" role="tablist">
   <button type="button" role="tab" data-tab="status" aria-selected="false">Status <span class="n" id="statusCount"></span></button>
@@ -174,5 +171,6 @@
 </dialog>
 <script src="app.js"></script>
 <script>/* installable app with an offline screen (sw.js) */if('serviceWorker' in navigator)addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})});</script>
+<script src="banner.js"></script>
 </body>
 </html>
