@@ -106,15 +106,20 @@ $('addForm').addEventListener('submit', async (ev) => {
 });
 
 $('refresh').addEventListener('click', async () => {
-  const b = $('refresh'); b.disabled = true; say($('msg'), 'Checking GitHub for new builds…');
+  // both halves every time: GitHub for new builds, and each device (asked again, not remembered) for the version it runs
+  const b = $('refresh'); b.disabled = true; b.textContent = 'Checking…'; say($('msg'), 'Checking GitHub for new builds and asking each device what it runs…');
+  for (const d of S.devices) delete probes[d.id];
+  renderDevs();
   try {
-    const j = await api('POST', 'api/refresh');
+    const [j] = await Promise.all([api('POST', 'api/refresh'), probeAll()]);
     const changed = Object.entries(j.results).filter(([, r]) => r.changed).map(([id, r]) => `${fwName(id)} ${r.tag}`);
     const failed = Object.values(j.results).filter((r) => !r.ok).length;
-    say($('msg'), changed.length ? 'Downloaded: ' + changed.join(', ') + '.' : failed ? 'Some builds aren’t available yet (see the cards).' : 'Everything is up to date.', failed && !changed.length ? 'err' : 'ok');
     await load(); renderDevs();
+    const off = S.devices.filter((d) => probes[d.id] && probes[d.id].online === false).map((d) => d.name);
+    const dev = S.devices.length ? ` Asked ${S.devices.length} device${S.devices.length === 1 ? '' : 's'}` + (off.length ? `; no answer from ${off.join(', ')}.` : ': all answered.') : '';
+    say($('msg'), (changed.length ? 'Downloaded: ' + changed.join(', ') + '.' : failed ? 'Some builds aren’t available yet (see the cards).' : 'Builds are up to date.') + dev, (failed && !changed.length) || off.length ? 'err' : 'ok');
   } catch (e) { say($('msg'), e.message, 'err'); }
-  b.disabled = false;
+  b.disabled = false; b.textContent = 'Check for updates';
 });
 
 // ---------- on the network: every device the hourly check found, in groups ----------
@@ -319,6 +324,8 @@ function renderStatus() {
   if (!ST) return;
   const al = ST.alerts || [], nt = ST.notices || [], since = (t) => t ? new Date(t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
   $('statusCount').textContent = al.length ? String(al.length) : '';
+  document.body.dataset.trouble = String(al.length);            // the banner's fixing duck shows only while something needs fixing
+  const bsub = document.querySelector('.banner .title span'); if (bsub) bsub.textContent = al.length ? `The duck is fixing ${al.length} thing${al.length > 1 ? 's' : ''} (see Status)` : 'Watches the house, maps the network, keeps the firmware fresh';
   $('statusCount').className = 'n' + (al.length ? ' off' : '');
   $('stNote').textContent = (ST.at ? `Checked ${ago(ST.at)} (every ${ST.every > 1 ? ST.every + ' minutes' : 'minute'}).` : 'The first check runs a minute after Lickety Split starts.')
     + (ST.settings.enabled ? ` Emails go to ${ST.settings.to || '(no address set)'}.` : ' Email is off: turn it on in ⚙ Settings.');
@@ -437,7 +444,7 @@ function showTab(t) {
   try { localStorage.setItem('ls-tab', t); } catch (e) { /* private mode */ }
 }
 document.querySelector('.tabs').addEventListener('click', (ev) => { const b = ev.target.closest('[data-tab]'); if (b) showTab(b.dataset.tab); });
-try { const t = location.hash === '#network' ? 'net' : location.hash === '#firmware' ? 'fw' : location.hash === '#status' ? 'status' : localStorage.getItem('ls-tab'); if (t === 'net' || t === 'fw') showTab(t); else showTab('status'); } catch (e) { showTab('status'); }
+try { const t = location.hash === '#network' ? 'net' : location.hash === '#firmware' ? 'fw' : location.hash === '#status' ? 'status' : location.hash === '#apps' ? 'apps' : localStorage.getItem('ls-tab'); if (t === 'net' || t === 'fw' || t === 'apps') showTab(t); else showTab('status'); } catch (e) { showTab('status'); }
 
 // ---------- reload (the home-screen app has no browser reload button) ----------
 $('reloadBtn').addEventListener('click', () => { $('reloadBtn').disabled = true; location.reload(); });

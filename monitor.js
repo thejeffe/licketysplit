@@ -207,6 +207,9 @@ function buildMessage({ from, to, subject, text, html, images }) {
 // the duck sidekick, flying (an animated GIF made from the page's drawing)
 let duckGif = null;
 try { duckGif = fs.readFileSync(require('path').join(__dirname, 'public', 'duck.gif')); } catch (e) { /* no duck: plain email */ }
+// and at work (hard hat, wrench, sparks) when there's something to fix
+let fixGif = null;
+try { fixGif = fs.readFileSync(require('path').join(__dirname, 'public', 'duck-fix.gif')); } catch (e) { /* the flying one, then */ }
 
 // ---------- the checks ----------
 const HA_TEMPLATE = `{%- set ns = namespace(locks=[], garage=[], autos=[], batt=[], upd=[], dead=[], seen=[], ring=[], rseen=[]) -%}
@@ -590,9 +593,10 @@ function createMonitor(deps) {
     const c = cfg();
     if (!c.to || !c.from || !c.password) throw new Error('Set the email address, the Gmail address and its app password first.');
     const { text, html } = emailBody(kind, extra);
+    const gif = kind !== 'test' && kind !== 'clear' && report().alerts.length && fixGif ? fixGif : duckGif;   // fixing when something's wrong, flying otherwise
     await smtpSend({ host: process.env.LS_SMTP_HOST || c.smtpHost, port: +process.env.LS_SMTP_PORT || c.smtpPort, insecure: process.env.LS_SMTP_INSECURE === '1', user: c.from, pass: c.password, from: c.from, to: c.to,
       message: buildMessage({ from: c.from, to: c.to, subject, text, html,
-        images: duckGif ? [{ cid: 'duck@licketysplit', name: 'duck.gif', type: 'image/gif', data: duckGif }] : [] }) });
+        images: gif ? [{ cid: 'duck@licketysplit', name: 'duck.gif', type: 'image/gif', data: gif }] : [] }) });
     st.emails.unshift({ at: Date.now(), kind, subject, ok: true });
     st.emails = st.emails.slice(0, 40); save();
     deps.log(`Duck Hunting email sent: ${subject}`);
