@@ -269,3 +269,4 @@ body[data-trouble]:not([data-trouble="0"]) .banner .title span{color:#ffd38a}
 .dlgbar .dlgmsg{flex-basis:100%;margin:0!important;font-size:13px}
 .dlgbar .dlgmsg:empty{display:none}
 dialog{--dtop:-16px}
+.dlgbar .dlgtabs{flex-basis:100%;margin:2px 0 0!important}
