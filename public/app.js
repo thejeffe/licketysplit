@@ -58,7 +58,7 @@ async function probeAll() {
 async function load() {
   S = await api('GET', 'api/state');
   renderCards(); renderDevs();
-  if (!S.owner) say($('msg'), 'Set the GitHub owner in ⚙ Settings so Lickety Split can find the builds.', 'err');
+  if (!S.owner) say($('fwMsg'), 'Set the GitHub owner in ⚙ Settings so Lickety Split can find the builds.', 'err');
 }
 
 $('devs').addEventListener('click', async (ev) => {
@@ -66,21 +66,21 @@ $('devs').addEventListener('click', async (ev) => {
   const id = b.closest('[data-id]').dataset.id, d = S.devices.find((x) => x.id === id);
   if (b.dataset.act === 'del') {
     if (!confirm(`Remove ${d.name} from the list? (Nothing on the device changes.)`)) return;
-    await api('DELETE', `api/devices/${id}`).catch((e) => say($('msg'), e.message, 'err'));
+    await api('DELETE', `api/devices/${id}`).catch((e) => say($('fwMsg'), e.message, 'err'));
     return load();
   }
   if (b.dataset.act === 'restart') {
     if (!confirm(`Restart ${d.name} (${d.host})? It's back in a few seconds.`)) return;
     b.disabled = true;
-    try { await api('POST', `api/devices/${id}/restart`); say($('msg'), `${d.name} is restarting.`, 'ok'); }
-    catch (e) { say($('msg'), `Couldn't restart ${d.name}: ${e.message}`, 'err'); }
+    try { await api('POST', `api/devices/${id}/restart`); say($('fwMsg'), `${d.name} is restarting.`, 'ok'); }
+    catch (e) { say($('fwMsg'), `Couldn't restart ${d.name}: ${e.message}`, 'err'); }
     setTimeout(probeAll, 12000);
     return;
   }
   if (b.dataset.act === 'ota') {
     const f = S.firmware.find((x) => x.id === d.fw);
     if (!confirm(`Send ${f.name} ${f.current.version} to ${d.name} (${d.host})? It restarts when done; its settings are kept.`)) return;
-    try { await api('POST', `api/devices/${id}/ota`); } catch (e) { say($('msg'), e.message, 'err'); }
+    try { await api('POST', `api/devices/${id}/ota`); } catch (e) { say($('fwMsg'), e.message, 'err'); }
     await load(); watchOta();
   }
 });
@@ -100,14 +100,14 @@ $('addForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   try {
     await api('POST', 'api/devices', { name: $('aName').value, host: $('aHost').value, fw: $('aFw').value });
-    $('aName').value = ''; $('aHost').value = ''; say($('msg'), 'Device added.', 'ok');
+    $('aName').value = ''; $('aHost').value = ''; say($('fwMsg'), 'Device added.', 'ok');
     await load(); probeAll();
-  } catch (e) { say($('msg'), e.message, 'err'); }
+  } catch (e) { say($('fwMsg'), e.message, 'err'); }
 });
 
 $('refresh').addEventListener('click', async () => {
   // both halves every time: GitHub for new builds, and each device (asked again, not remembered) for the version it runs
-  const b = $('refresh'); b.disabled = true; b.textContent = 'Checking…'; say($('msg'), 'Checking GitHub for new builds and asking each device what it runs…');
+  const b = $('refresh'); b.disabled = true; b.textContent = 'Checking…'; say($('fwMsg'), 'Checking GitHub for new builds and asking each device what it runs…');
   for (const d of S.devices) delete probes[d.id];
   renderDevs();
   try {
@@ -117,8 +117,8 @@ $('refresh').addEventListener('click', async () => {
     await load(); renderDevs();
     const off = S.devices.filter((d) => probes[d.id] && probes[d.id].online === false).map((d) => d.name);
     const dev = S.devices.length ? ` Asked ${S.devices.length} device${S.devices.length === 1 ? '' : 's'}` + (off.length ? `; no answer from ${off.join(', ')}.` : ': all answered.') : '';
-    say($('msg'), (changed.length ? 'Downloaded: ' + changed.join(', ') + '.' : failed ? 'Some builds aren’t available yet (see the cards).' : 'Builds are up to date.') + dev, (failed && !changed.length) || off.length ? 'err' : 'ok');
-  } catch (e) { say($('msg'), e.message, 'err'); }
+    say($('fwMsg'), (changed.length ? 'Downloaded: ' + changed.join(', ') + '.' : failed ? 'Some builds aren’t available yet (see the cards).' : 'Builds are up to date.') + dev, (failed && !changed.length) || off.length ? 'err' : 'ok');
+  } catch (e) { say($('fwMsg'), e.message, 'err'); }
   b.disabled = false; b.textContent = 'Check for updates';
 });
 
@@ -297,7 +297,17 @@ $('netList').addEventListener('click', async (ev) => {
 });
 
 // ---------- status: the Duck Hunting report ----------
-// the sidekick: Lickety Split's duck superhero (Duck Hunting), flying while everything is working
+// the Status tab's duck: at work (fixduck.js) only while something needs fixing; all good is just a check mark
+let fixRaf = 0;
+function fixDuckOnStatus() {
+  cancelAnimationFrame(fixRaf);
+  const cv = document.getElementById('stFix'); if (!cv || !window.drawFixDuck) return;
+  const d = Math.min(2, devicePixelRatio || 1), x = cv.getContext('2d'); cv.width = 190 * d; cv.height = 80 * d; x.scale(d, d);
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const step = (now) => { if (!cv.isConnected) return; x.clearRect(0, 0, 190, 80); window.drawFixDuck(x, 50, 70, now / 1000, 1.9); if (!still) fixRaf = requestAnimationFrame(step); };
+  fixRaf = requestAnimationFrame(step);
+}
+// (the flying duck below stays for reference: the emails use its GIF)
 const HERO = `<svg class="hero" viewBox="0 0 220 110" role="img" aria-label="Lickety Split's duck sidekick flying: everything is working">
   <defs><linearGradient id="dk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe17a"/><stop offset="1" stop-color="#f2a900"/></linearGradient>
   <linearGradient id="dc" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff4a3d"/><stop offset="1" stop-color="#b3121f"/></linearGradient></defs>
@@ -324,7 +334,8 @@ function renderStatus() {
   if (!ST) return;
   const al = ST.alerts || [], nt = ST.notices || [], since = (t) => t ? new Date(t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
   $('statusCount').textContent = al.length ? String(al.length) : '';
-  document.body.dataset.trouble = String(al.length);            // the banner's fixing duck shows only while something needs fixing
+  document.body.dataset.trouble = String(al.length);
+  if (al.length) setTimeout(fixDuckOnStatus, 0);            // the banner's fixing duck shows only while something needs fixing
   const bsub = document.querySelector('.banner .title span'); if (bsub) bsub.textContent = al.length ? `The duck is fixing ${al.length} thing${al.length > 1 ? 's' : ''} (see Status)` : 'Watches the house, maps the network, keeps the firmware fresh';
   $('statusCount').className = 'n' + (al.length ? ' off' : '');
   $('stNote').textContent = (ST.at ? `Checked ${ago(ST.at)} (every ${ST.every > 1 ? ST.every + ' minutes' : 'minute'}).` : 'The first check runs a minute after Lickety Split starts.')
@@ -334,7 +345,7 @@ function renderStatus() {
   for (const n of nt) (byCat[n.cat] = byCat[n.cat] || []).push(n);
   const checks = Object.entries(ST.checks || {}).sort((a, b) => a[0].localeCompare(b[0]))
     .map(([k, c]) => `<div title="${esc(c.detail)}"><span class="dot${c.ok ? '' : ' bad'}"></span>${esc(k)} <small>${esc(c.detail)}</small></div>`).join('');
-  $('stBody').innerHTML = `${al.length ? `<div class="big bad">${al.length} thing${al.length > 1 ? 's' : ''} need${al.length > 1 ? '' : 's'} attention</div>` : `<div class="allgood">${HERO}<div><div class="big good">All good</div><div class="note" style="margin:0">Everything is working. The duck is on patrol.</div></div></div>`}
+  $('stBody').innerHTML = `${al.length ? `<div class="allgood"><canvas class="fixduck" id="stFix" width="190" height="80" aria-label="The duck at work: something needs fixing"></canvas><div class="big bad">${al.length} thing${al.length > 1 ? 's' : ''} need${al.length > 1 ? '' : 's'} attention</div></div>` : `<div class="allgood"><svg class="okmark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7 12.5l3.2 3.2L17 9"/></svg><div><div class="big good">All good</div><div class="note" style="margin:0">Everything is working.</div></div></div>`}
     ${al.length ? `<div class="list st-sec">${al.map((a) => row(a, 'al')).join('')}</div>` : ''}
     ${(ST.pending || []).length ? `<p class="note">Watching: ${ST.pending.map((a) => esc(a.title)).join(', ')} (counts if it\u2019s still wrong at the next check)</p>` : ''}
     ${nt.length ? `<div class="st-sec"><h3>Updates to install</h3><div class="list">${Object.entries(byCat).map(([c, l]) => l.map((a) => row(a, 'nt')).join('')).join('')}</div></div>` : ''}
