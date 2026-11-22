@@ -231,7 +231,8 @@ function renderPing() {
     return `<i class="${cls}" title="${24 - i} h ago: ${h.ok} OK${h.fail ? ', ' + h.fail + ' failed' : ''}"></i>`;
   }).join('');
   const last = p.last ? ` · last ${ago(p.last.at)}${p.last.ok ? '' : ' <span class="off">failed (' + esc(p.last.status) + ')</span>'}` : '';
-  $('pingSum').innerHTML = `<span>Health ping (${esc(p.host)}): ${p.ok.toLocaleString()} of ${(p.ok + p.fail).toLocaleString()} OK in the last 24 h${last}</span><span class="strip">${cells}</span><span>log ▾</span>`;
+  const tot = p.ok + p.fail, pct = !tot ? '' : !p.fail ? '100%' : (Math.floor(p.ok / tot * 1000) / 10).toFixed(1) + '%';   // never shows 100% with a failure
+  $('pingSum').innerHTML = `<span>Health ping (${esc(p.host)}): ${pct ? `(${pct}) ` : ''}${p.ok.toLocaleString()} of ${tot.toLocaleString()} OK in the last 24 h${last}</span><span class="strip">${cells}</span><span>log ▾</span>`;
   // the log, short: failures on their own line; OKs grouped by 10 minutes for the last hour, then by the hour
   const hm = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   const lines = [];
