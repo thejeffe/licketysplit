@@ -226,26 +226,27 @@ function renderPing() {
   $('pingBox').hidden = !p;
   if (!p) return;
   const tm = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  // "(Z%) X of Y OK", everywhere the pings are counted (never 100% with a failure)
+  const okOf = (ok, fail) => { const n = ok + fail; return n ? `(${!fail ? '100%' : (Math.floor(ok / n * 1000) / 10).toFixed(1) + '%'}) ${ok.toLocaleString()} of ${n.toLocaleString()} OK` : 'no pings'; };
   const cells = p.hours.map((h, i) => {
     const cls = h.fail ? 'bad' : h.ok ? 'ok' : '';
-    return `<i class="${cls}" title="${24 - i} h ago: ${h.ok} OK${h.fail ? ', ' + h.fail + ' failed' : ''}"></i>`;
+    return `<i class="${cls}" title="${24 - i} h ago: ${okOf(h.ok, h.fail)}"></i>`;
   }).join('');
   const last = p.last ? ` · last ${ago(p.last.at)}${p.last.ok ? '' : ' <span class="off">failed (' + esc(p.last.status) + ')</span>'}` : '';
-  const tot = p.ok + p.fail, pct = !tot ? '' : !p.fail ? '100%' : (Math.floor(p.ok / tot * 1000) / 10).toFixed(1) + '%';   // never shows 100% with a failure
-  $('pingSum').innerHTML = `<span>Health ping (${esc(p.host)}): ${pct ? `(${pct}) ` : ''}${p.ok.toLocaleString()} of ${tot.toLocaleString()} OK in the last 24 h${last}</span><span class="strip">${cells}</span><span>log ▾</span>`;
-  // the log, short: failures on their own line; OKs grouped by 10 minutes for the last hour, then by the hour
+  $('pingSum').innerHTML = `<span>Health ping (${esc(p.host)}): ${okOf(p.ok, p.fail)} in the last 24 h${last}</span><span class="strip">${cells}</span><span>log ▾</span>`;
+  // the log, short: by 10 minutes for the last hour, then by the hour, each "(Z%) X of Y OK", newest first; a slot's
+  // failures listed under it
   const hm = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  const lines = [];
-  let grp = null;
-  const flush = () => { if (grp) lines.push(`<div>${hm(grp.from)}\u2013${hm(grp.to)} · ${grp.n} OK</div>`); grp = null; };
+  const slots = [], cut = Math.floor((Date.now() - 3600000) / 600000) * 600000;   // 10-minute lines from here on
   for (const x of p.log || []) {
-    if (!x.ok) { flush(); lines.push(`<div class="bad">${tm(x.t)} failed: ${esc(x.s || '')}</div>`); continue; }
-    const size = Date.now() - x.t < 3600000 ? 600000 : 3600000, slot = Math.floor(x.t / size) * size;
-    if (!grp || grp.slot !== slot) { flush(); grp = { slot, from: slot, to: slot + size, n: 0 }; }
-    grp.n++;
+    const size = x.t >= cut ? 600000 : 3600000, slot = Math.floor(x.t / size) * size;
+    let g = slots[slots.length - 1];
+    if (!g || g.slot !== slot) { g = { slot, to: size === 3600000 ? Math.min(slot + size, cut) : slot + size, ok: 0, fail: 0, bad: [] }; slots.push(g); }
+    if (x.ok) g.ok++; else { g.fail++; g.bad.push(x); }
   }
-  flush();
-  $('pingLog').innerHTML = `<div class="log">${lines.reverse().join('') || 'No pings yet.'}</div>`;
+  const lines = slots.reverse().map((g) => `<div${g.fail ? ' class="bad"' : ''}>${hm(g.slot)}\u2013${hm(g.to)} · ${okOf(g.ok, g.fail)}</div>`
+    + g.bad.reverse().map((x) => `<div class="bad" style="padding-left:14px">${tm(x.t)} failed: ${esc(x.s || '')}</div>`).join(''));
+  $('pingLog').innerHTML = `<div class="log">${lines.join('') || 'No pings yet.'}</div>`;
 }
 
 function renderNet() {
