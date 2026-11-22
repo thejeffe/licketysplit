@@ -1,14 +1,16 @@
 'use strict';
 // Internet speed test against Cloudflare's speed-test endpoints (no client software, no account):
 //  - latency: the network round-trip Cloudflare measured on several tiny requests (median = ping, change between them = jitter)
-//  - download and upload the same way: 4 streams of 2 x 25 MB each (about 200 MB, stopping at 10 s), counting only
-//    the time data is moving (see busyTime). Download counts bytes as they arrive; upload counts pieces as Cloudflare
+//  - download: 8 streams of 25 MB (200 MB, the same budget as before, stopping at 10 s), rated on the steady part only: from 1 s after
+//    the data starts (each connection ramps up first) to when the first stream finishes (after that, fewer streams
+//    are left to fill the line). That's what the line carries, like the big speed-test sites report.
+//  - upload: 4 streams of 2 x 25 MB, counting only the time data is moving (see busyTime), pieces as Cloudflare
 //    confirms them. (Upload used to send 48 MB in 4 MB
 //    pieces, waiting for each reply: on a gigabit line that read ~150 Mbps low.)
 // Results are Mbps. Numbers are what this server sees: a VM on a gigabit LAN usually measures the
 // internet line itself; a slow Wi-Fi client would see less.
 const CF = process.env.LS_SPEED_BASE || 'https://speed.cloudflare.com';
-const STREAMS = 4, CAP_MS = 10000;
+const STREAMS = 4, DOWN_STREAMS = 8, DOWN_PIECES = 1, CAP_MS = 10000, RAMP_MS = 1000;
 // a fixed budget per test (about 200 MB each way), so hourly tests stay well inside Cloudflare's limits
 const PIECE = 25 * 1000 * 1000, PIECES = 2;
 
@@ -50,8 +52,8 @@ function busyTime(spans) { // total length of the union of [start, end) spans (m
   if (ce > cs) total += ce - cs;
   return total;
 }
-async function warmUp() { // a connection per stream, opened before the clock starts
-  await Promise.all(Array.from({ length: STREAMS }, async () => {
+async function warmUp(n) { // a connection per stream, opened before the clock starts
+  await Promise.all(Array.from({ length: n || STREAMS }, async () => {
     const r = await fetch(`${CF}/__down?bytes=0&w=${Math.random()}`, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     if (!r.ok) throw refused(r);
     await r.arrayBuffer();
@@ -60,14 +62,14 @@ async function warmUp() { // a connection per stream, opened before the clock st
 const now = () => Number(process.hrtime.bigint()) / 1e6;
 
 async function download() {
-  await warmUp();
-  const t0 = now(), spans = [];
+  await warmUp(DOWN_STREAMS);
+  const t0 = now(), spans = [], marks = [], ends = [];   // marks: [time, bytes so far] as data arrives
   let total = 0;
-  await Promise.all(Array.from({ length: STREAMS }, async () => {
+  await Promise.all(Array.from({ length: DOWN_STREAMS }, async () => {
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), CAP_MS);
     try {
-      for (let k = 0; k < PIECES && now() - t0 < CAP_MS; k++) {
+      for (let k = 0; k < DOWN_PIECES && now() - t0 < CAP_MS; k++) {
         const r = await fetch(`${CF}/__down?bytes=${PIECE}`, { signal: ac.signal, cache: 'no-store' });   // (Cloudflare refuses 100 MB)
         if (!r.ok) throw refused(r);                     // never retry a refusal in a loop
         const rd = r.body.getReader();
@@ -75,14 +77,23 @@ async function download() {
         try {
           for (;;) {
             const { done, value } = await rd.read(); if (done) break;
-            const t = now(); if (!first) first = t; last = t; total += value.length;
+            const t = now(); if (!first) first = t; last = t; total += value.length; marks.push([t, total]);
           }
         } finally { if (first) spans.push([first, last]); }  // from the first byte to the last (an abort keeps what came)
       }
     } catch (e) { if (e.name !== 'AbortError') throw e; }
-    finally { clearTimeout(timer); }
+    finally { clearTimeout(timer); ends.push(now()); }
   }));
-  const ms = busyTime(spans);
+  // the steady part: from RAMP_MS after the first byte to when the first stream finished
+  if (marks.length > 10) {
+    const tFirst = marks[0][0], tEnd = Math.min(...ends);
+    let a = tFirst + RAMP_MS;
+    if (tEnd - a < 600) a = tFirst + (tEnd - tFirst) * 0.3;  // a short test: skip the first 30% instead
+    const at = (t) => { let lo = 0, hi = marks.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (marks[m][0] <= t) lo = m; else hi = m - 1; } return marks[lo]; };
+    const A = at(a), B = at(tEnd);
+    if (B[0] - A[0] > 300) return (B[1] - A[1]) * 8 / ((B[0] - A[0]) / 1000) / 1e6;
+  }
+  const ms = busyTime(spans);                            // fallback: bytes over the time data moved
   return ms > 0 ? total * 8 / (ms / 1000) / 1e6 : 0;
 }
 
@@ -114,4 +125,4 @@ async function runTest() {
   return out;
 }
 
-module.exports = { runTest };
+module.exports = { runTest, download };
