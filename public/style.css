@@ -253,3 +253,5 @@ body[data-trouble]:not([data-trouble="0"]) .banner .title span{color:#ffd38a}
 @media (max-width:420px){.tabs{gap:0}.tabs [role="tab"]{padding:8px 6px;font-size:16px}.tabs .n{font-size:11px}.tabs .menubtn{width:38px}}
 #fwMsg:empty{display:none}
 #fwMsg{margin:2px 0 8px}
+.boxmsg:empty{display:none}
+.boxmsg{margin:2px 0 8px}

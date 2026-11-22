@@ -32,6 +32,7 @@
  <section class="box" id="statusBox" data-pane="status" hidden>
   <div class="boxhead"><h2 id="stHead">Status</h2><button type="button" class="small" id="stCheck">Check now</button></div>
   <p class="note" id="stNote"></p>
+  <p class="msg boxmsg" id="stMsg" role="status"></p>
   <div class="st-sec" id="speedBox" style="margin-top:4px" hidden>
    <div class="boxhead"><h3 style="margin:0">Internet speed</h3><div class="acts-r"><span class="seg" id="speedRange"><button type="button" data-days="1">24 h</button><button type="button" data-days="7" aria-pressed="true">7 days</button><button type="button" data-days="30">30 days</button></span><button type="button" class="small" id="speedRun">Test now</button></div></div>
    <p class="note" id="speedNote"></p>
@@ -74,6 +75,7 @@
  <section class="box" id="netBox" data-pane="net" hidden>
   <div class="boxhead"><h2>On the network</h2><button type="button" class="small" id="netScan">Check now</button></div>
   <p class="note" id="netNote"></p>
+  <p class="msg boxmsg" id="netMsg" role="status"></p>
   <details class="ping" id="pingBox" hidden><summary id="pingSum"></summary><div id="pingLog"></div></details>
   <div id="dnsBox"></div>
   <input id="netFilter" type="search" placeholder="Filter by name, maker, address…" autocapitalize="off" spellcheck="false" aria-label="Filter the devices">

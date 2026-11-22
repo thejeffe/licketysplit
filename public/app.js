@@ -216,8 +216,8 @@ async function nameAction(ev) {
     const j = await api('POST', 'api/network/names', body);
     NET.settings = j.settings; NET.names = j.names; S.net = j.settings;
     if (j.sync && NET.result) NET.result.piSync = j.sync;
-    renderNet(); if (j.sync && j.sync.error) say($('msg'), j.sync.error, 'err');
-  } catch (e) { say($('msg'), e.message, 'err'); b.disabled = false; }
+    renderNet(); if (j.sync && j.sync.error) say($('netMsg'), j.sync.error, 'err');
+  } catch (e) { say($('netMsg'), e.message, 'err'); b.disabled = false; }
 }
 $('dnsBox').addEventListener('click', nameAction);
 
@@ -292,13 +292,14 @@ $('netList').addEventListener('click', async (ev) => {
   const b = ev.target.closest('button[data-add]'); if (!b) return;
   const h = NET.result.hosts.find((x) => x.key === b.dataset.add); if (!h) return;
   b.disabled = true;
-  try { await api('POST', 'api/devices', { name: nameOf(h), host: h.dns || h.ip, fw: h.fw }); say($('msg'), `${nameOf(h)} added to your devices.`, 'ok'); await load(); probeAll(); renderNet(); }
-  catch (e) { say($('msg'), e.message, 'err'); b.disabled = false; }
+  try { await api('POST', 'api/devices', { name: nameOf(h), host: h.dns || h.ip, fw: h.fw }); say($('netMsg'), `${nameOf(h)} added to your devices.`, 'ok'); await load(); probeAll(); renderNet(); }
+  catch (e) { say($('netMsg'), e.message, 'err'); b.disabled = false; }
 });
 
 // ---------- status: the Duck Hunting report ----------
 // the Status tab's duck: at work (fixduck.js) only while something needs fixing; all good is just a check mark
 let fixRaf = 0;
+let mailMsg = { at: 0, text: '', kind: '' };   // the last email sent from the Status tab: shown under its buttons for a minute
 function fixDuckOnStatus() {
   cancelAnimationFrame(fixRaf);
   const cv = document.getElementById('stFix'); if (!cv || !window.drawFixDuck) return;
@@ -353,24 +354,25 @@ function renderStatus() {
     ${(ST.history || []).length ? `<div class="st-sec"><h3>Fixed recently</h3><ul class="mails">${ST.history.slice(0, 8).map((h) => `<li>${esc(h.title)} <span class="muted">· ${since(h.from)} \u2013 ${since(h.to)}</span></li>`).join('')}</ul></div>` : ''}
     ${(ST.ignored || []).length ? `<div class="st-sec"><h3>Ignored</h3><ul class="mails">${ST.ignored.map((x) => `<li>${esc(x.title)} <button type="button" class="small link" data-unignore="${esc(x.id)}">Watch again</button></li>`).join('')}</ul></div>` : ''}
     <div class="st-sec"><h3>Emails</h3><ul class="mails">${(ST.emails || []).slice(0, 8).map((m) => `<li>${since(m.at)} · ${esc(m.subject)}${m.ok ? '' : ` <span class="off">failed: ${esc(m.error)}</span>`}</li>`).join('') || '<li class="muted">None sent yet.</li>'}</ul>
-    <div class="acts-r" style="justify-content:flex-start;margin-top:8px"><button type="button" class="small" id="stTest">Send a test email</button><button type="button" class="small" id="stSend">Email this report now</button></div></div>`;
+    <div class="acts-r" style="justify-content:flex-start;margin-top:8px"><button type="button" class="small" id="stTest">Send a test email</button><button type="button" class="small" id="stSend">Email this report now</button></div><p class="msg boxmsg ${mailMsg.kind}" id="stMailMsg" role="status">${mailMsg.at && Date.now() - mailMsg.at < 60000 ? esc(mailMsg.text) : ''}</p></div>`;
 }
 async function loadStatus() { loadSpeed(); return loadStatus2(); }
 async function loadStatus2() { try { ST = await api('GET', 'api/status'); renderStatus(); } catch (e) { $('stNote').textContent = 'Couldn\u2019t load the status: ' + e.message; } }
-$('stCheck').addEventListener('click', async () => { $('stCheck').disabled = true; try { ST = await api('POST', 'api/status/check'); renderStatus(); } catch (e) { say($('msg'), e.message, 'err'); } $('stCheck').disabled = false; });
+$('stCheck').addEventListener('click', async () => { $('stCheck').disabled = true; try { ST = await api('POST', 'api/status/check'); renderStatus(); } catch (e) { say($('stMsg'), e.message, 'err'); } $('stCheck').disabled = false; });
 $('stBody').addEventListener('click', async (ev) => {
   const b = ev.target.closest('button'); if (!b) return;
   if (b.dataset.ignore || b.dataset.unignore) {
     const id = b.dataset.ignore || b.dataset.unignore;
     if (b.dataset.ignore && !confirm('Ignore this from now on? It won\u2019t show here or in emails (you can undo it under Ignored).')) return;
     b.disabled = true;
-    try { ST = await api('POST', 'api/status/ignore', { id, ignore: !!b.dataset.ignore }); renderStatus(); } catch (e) { say($('msg'), e.message, 'err'); b.disabled = false; }
+    try { ST = await api('POST', 'api/status/ignore', { id, ignore: !!b.dataset.ignore }); renderStatus(); } catch (e) { say($('stMsg'), e.message, 'err'); b.disabled = false; }
     return;
   }
   if (!['stTest', 'stSend'].includes(b.id)) return;
   b.disabled = true;
-  try { ST = await api('POST', b.id === 'stTest' ? 'api/status/test-email' : 'api/status/send-report'); renderStatus(); say($('msg'), 'Email sent.', 'ok'); }
-  catch (e) { say($('msg'), 'Email failed: ' + e.message, 'err'); b.disabled = false; }
+  $('stMailMsg').className = 'msg boxmsg'; $('stMailMsg').textContent = 'Sending…';
+  try { ST = await api('POST', b.id === 'stTest' ? 'api/status/test-email' : 'api/status/send-report'); mailMsg = { at: Date.now(), text: 'Email sent to ' + (ST.settings.to || 'you') + '.', kind: 'ok' }; renderStatus(); }
+  catch (e) { mailMsg = { at: Date.now(), text: 'Email failed: ' + e.message, kind: 'err' }; say($('stMailMsg'), mailMsg.text, 'err'); b.disabled = false; }
 });
 setInterval(() => { if (!document.hidden) loadStatus(); }, 60000);
 
@@ -444,7 +446,7 @@ async function loadSpeed() { try { SPEED = await api('GET', 'api/speed?days=' + 
 $('speedRange').addEventListener('click', (ev) => { const b = ev.target.closest('button[data-days]'); if (!b) return; speedDays = +b.dataset.days; loadSpeed(); });
 $('speedRun').addEventListener('click', async () => {
   $('speedRun').disabled = true; SPEED = Object.assign({}, SPEED, { running: true }); renderSpeed();
-  try { await api('POST', 'api/speed/run'); } catch (e) { say($('msg'), 'Speed test failed: ' + e.message, 'err'); }
+  try { await api('POST', 'api/speed/run'); } catch (e) { say($('stMsg'), 'Speed test failed: ' + e.message, 'err'); }
   loadSpeed();
 });
 
