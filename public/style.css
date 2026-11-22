@@ -270,3 +270,5 @@ body[data-trouble]:not([data-trouble="0"]) .banner .title span{color:#ffd38a}
 .dlgbar .dlgmsg:empty{display:none}
 dialog{--dtop:-16px}
 .dlgbar .dlgtabs{flex-basis:100%;margin:2px 0 0!important}
+/* dialogs sit at the top of the screen (not centred), so they don't jump about when their length changes */
+dialog[open]{margin:max(12px, env(safe-area-inset-top, 0px)) auto auto}
