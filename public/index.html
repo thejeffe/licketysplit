@@ -30,39 +30,43 @@
  </nav>
 
  <section class="box" id="speedBox" data-pane="status" hidden>
-   <div class="boxhead"><h2>Internet speed</h2><div class="acts-r"><span class="seg" id="speedRange"><button type="button" data-days="1" aria-pressed="true">24 h</button><button type="button" data-days="7">7 days</button><button type="button" data-days="30">30 days</button></span><button type="button" class="small" id="speedRun">Test now</button></div></div>
+   <div class="boxhead"><h2>Internet speed</h2><div class="acts-r"><span class="seg" id="speedRange"><button type="button" data-days="1" aria-pressed="true">24 h</button><button type="button" data-days="7">7 days</button><button type="button" data-days="30">30 days</button></span><button type="button" class="ib" id="speedRun" title="Run a speed test now" aria-label="Run a speed test now"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 17a8.5 8.5 0 1 1 15 0"/><path d="M12 13l4-5"/><circle cx="12" cy="13" r="1.4"/></svg></button></div></div>
    <p class="note" id="speedNote"></p>
    <div id="speedChart"></div>
  </section>
 
  <section class="box" id="statusBox" data-pane="status" hidden>
-  <div class="boxhead"><h2 id="stHead">Status</h2><button type="button" class="small" id="stCheck">Check now</button></div>
+  <div class="boxhead"><h2 id="stHead">Status</h2><button type="button" class="ib" id="stCheck" title="Check everything now" aria-label="Check now"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg></button></div>
   <p class="note" id="stNote"></p>
   <p class="msg boxmsg" id="stMsg" role="status"></p>
   <div id="stBody"></div>
  </section>
 
  <section class="box" data-pane="fw">
-  <div class="boxhead"><h2>Your devices</h2><button type="button" class="small" id="refresh" title="Ask GitHub for new builds and each device for the version it runs">Check for updates</button></div>
+  <div class="boxhead"><h2>Your devices</h2><button type="button" class="ib" id="refresh" title="Check for updates: new builds on GitHub, and the version each device runs" aria-label="Check for updates"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5 4 4 0 0 1 17.5 18"/><path d="M12 11v9M9 17l3 3 3-3"/></svg></button></div>
   <p class="msg" id="fwMsg" role="status"></p>
-  <p class="note">Update over Wi-Fi: sends the newest build to a device that's already running. Its settings are kept, and it restarts when it's done.</p>
+  <p class="note devsum" id="devSum"></p>
   <div class="list" id="devs"></div>
+  <details class="fold"><summary>+ Add a device</summary>
+  <p class="note">Update over Wi-Fi sends the newest build to a device that's already running; its settings are kept and it restarts when done.</p>
   <form class="add" id="addForm">
    <label>Name<input id="aName" type="text" placeholder="Living room screen" maxlength="60"></label>
    <label>Host name or IP<input id="aHost" type="text" placeholder="192.168.1.50" autocapitalize="off" spellcheck="false"></label>
    <label>Runs<select id="aFw"></select></label>
    <button type="submit">Add device</button>
   </form>
+  </details>
  </section>
 
  <section class="box" data-pane="fw">
-  <h2>Flash over USB</h2>
+  <details class="fold"><summary><h2 style="display:inline">Flash over USB</h2> <small class="muted">a new device, or one that won't start</small></summary>
   <p class="note" id="usbNote"></p>
   <div class="list" id="cards"></div>
+  </details>
  </section>
 
  <section class="box" data-pane="apps" hidden>
-  <div class="boxhead"><h2>Apps</h2><button type="button" class="small" id="apEdit">Edit</button></div>
+  <div class="boxhead"><h2>Apps</h2><button type="button" class="ib" id="apEdit" title="Edit the apps" aria-label="Edit the apps"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button></div>
   <p class="note">Everything the house runs, one tap away. The round button shares a link.</p>
   <section class="apps" id="apList" aria-live="polite"><p class="note">Loading…</p></section>
   <section class="ed" id="apEditor" hidden>
@@ -74,7 +78,7 @@
  </section>
 
  <section class="box" id="netBox" data-pane="net" hidden>
-  <div class="boxhead"><h2>On the network</h2><button type="button" class="small" id="netScan">Check now</button></div>
+  <div class="boxhead"><h2>On the network</h2><button type="button" class="ib" id="netScan" title="Check the network now" aria-label="Check the network now"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg></button></div>
   <p class="note" id="netNote"></p>
   <p class="msg boxmsg" id="netMsg" role="status"></p>
   <div class="dash" id="netDash"></div>

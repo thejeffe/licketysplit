@@ -304,3 +304,34 @@ dialog[open]{margin:max(12px, env(safe-area-inset-top, 0px)) auto auto}
 .ndd.gone>summary b{color:var(--muted)}
 .ndd>.row{margin:4px 0 8px}
 .ndd .addr{overflow-wrap:anywhere;min-width:0}
+
+/* Firmware tab, compact: one row per device, a dot for active / offline */
+.dv{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:9px 10px;border:1px solid var(--rule);border-radius:10px;background:var(--row)}
+.dv .dot{width:10px;height:10px;border-radius:50%;background:var(--muted)}
+.dv.up .dot{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.dv.down .dot{background:var(--err)}
+.dv.chk .dot{animation:dvpulse 1s ease-in-out infinite alternate}
+@keyframes dvpulse{to{opacity:.3}}
+.dv.down .devlink{color:var(--muted)}
+.dvmain{min-width:0}
+.dvl1{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dvl1 .devlink{font-weight:700;color:var(--ink);text-decoration:none}.dvl1 .devlink:hover{text-decoration:underline}
+.dvver{font:12px var(--mono);color:var(--muted)}
+.dvl2{display:block;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dvbtn{display:flex;gap:4px}
+.ib{width:34px;height:32px;padding:0;display:grid;place-items:center;border-radius:8px}
+.ib svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ib.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.dv .run{grid-column:1/-1;font-size:12px;margin:0}
+.devsum{margin:0 0 8px}.devsum .okc{color:var(--ok)}.devsum .newc{color:var(--accent)}
+.fold>summary{cursor:pointer;color:var(--accent);font-weight:600;padding:6px 0;list-style:none}
+.fold>summary::-webkit-details-marker{display:none}
+.fold>summary h2{color:var(--ink)}
+.fold[open]>summary{margin-bottom:6px}
+
+/* icon buttons everywhere (words stay in the tooltip and for screen readers) */
+.ib{flex:none}
+.ib.sm{width:28px;height:26px;border-radius:7px;vertical-align:middle}
+.ib.sm svg{width:14px;height:14px}
+.ib.spin svg{animation:ibspin 1s linear infinite}
+@keyframes ibspin{to{transform:rotate(360deg)}}

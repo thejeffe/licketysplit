@@ -14,7 +14,7 @@
     if (!apps.length) { list.innerHTML = '<p class="note">No apps yet. Tap Edit to add them.</p>'; return; }
     list.innerHTML = apps.map(function (a, i) {
       var ic = a.icon ? '<img src="' + esc(a.icon) + '" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode(\'' + esc(a.name.charAt(0).toUpperCase()) + '\'))">' : esc(a.name.charAt(0).toUpperCase());
-      return '<div class="app"><a class="open" href="' + esc(a.url) + '"><span class="ic">' + ic + '</span><span style="min-width:0"><b>' + esc(a.name) + '</b>' + (a.about ? '<small>' + esc(a.about) + '</small>' : '') + '<small class="host">' + esc(host(a.url)) + '</small></span></a>'
+      return '<div class="app"><a class="open" href="' + esc(a.url) + '" target="_blank" rel="noopener"><span class="ic">' + ic + '</span><span style="min-width:0"><b>' + esc(a.name) + '</b>' + (a.about ? '<small>' + esc(a.about) + '</small>' : '') + '<small class="host">' + esc(host(a.url)) + '</small></span></a>'
         + '<button type="button" class="share" data-i="' + i + '" title="Share ' + esc(a.name) + '" aria-label="Share ' + esc(a.name) + '">' + SHARE + '</button></div>';
     }).join('');
   }

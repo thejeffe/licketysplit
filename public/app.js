@@ -41,12 +41,21 @@ function renderDevs() {
     const newest = cur ? `<span class="ver ${isNew ? 'new' : ''}">${esc(cur.version)}${isNew ? ' ↑' : ''}</span>` : '<span class="ver">—</span>';
     const busy = run && run.state === 'sending';
     const runLine = run ? `<div class="run ${esc(run.state)}"><b>${{ sending: 'Updating', done: 'Last update', error: 'Update failed' }[run.state] || 'Update'}</b> · ${esc(new Date(run.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} · ${esc(run.msg)}</div>` : '';
-    return `<div class="row dev" data-id="${esc(d.id)}">
-      <div><b><a class="devlink" href="http://${esc(d.host)}/" target="_blank" rel="noopener" title="Open ${esc(d.name)}\u2019s own page">${esc(d.name)} \u2197</a></b><small><a class="devhost" href="http://${esc(d.host)}/" target="_blank" rel="noopener">${esc(d.host)}</a>${p && p.detail ? ' · ' + esc(p.detail) : ''}</small></div>
-      <div><small>${esc(f.name || d.fw)}</small>${running} → ${newest}</div>
-      <div class="acts-r"><button type="button" class="small ${isNew ? 'pri' : ''}" data-act="ota" ${!cur || !p || !p.online || busy ? 'disabled' : ''}>${busy ? 'Updating…' : 'Update'}</button><button type="button" class="small" data-act="restart" title="Restart the device" ${!p || !p.online || busy ? 'disabled' : ''}>Restart</button><button type="button" class="small" data-act="del" title="Remove from this list" aria-label="Remove ${esc(d.name)}">✕</button></div>
+    const state = !p ? 'chk' : p.online ? 'up' : 'down';
+    const ico = (path) => `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
+    const UP = ico('<path d="M12 19V5M6 11l6-6 6 6"/>'), RS = ico('<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>'), RM = ico('<path d="M6 6l12 12M18 6L6 18"/>');
+    return `<div class="dv ${state}" data-id="${esc(d.id)}">
+      <span class="dot" title="${{ chk: 'checking…', up: 'active', down: 'offline' }[state]}"></span>
+      <div class="dvmain"><div class="dvl1"><a class="devlink" href="http://${esc(d.host)}/" target="_blank" rel="noopener" title="Open ${esc(d.name)}’s own page">${esc(d.name)}</a>
+        <span class="dvver">${!p ? 'checking…' : p.online ? esc(p.version || '?') : 'offline'}</span>${isNew ? `<span class="badge new" title="${esc(cur.version)} is ready">update → ${esc(cur.version)}</span>` : ''}</div>
+        <small class="dvl2"><a class="devhost" href="http://${esc(d.host)}/" target="_blank" rel="noopener">${esc(d.host)}</a> · ${esc(f.name || d.fw)}${p && p.detail ? ' · ' + esc(p.detail) : ''}</small></div>
+      <div class="dvbtn"><button type="button" class="ib ${isNew ? 'pri' : ''}" data-act="ota" title="${busy ? 'Updating…' : cur ? 'Send ' + esc(cur.version) + ' over Wi-Fi' : 'No build yet'}" aria-label="Update" ${!cur || !p || !p.online || busy ? 'disabled' : ''}>${UP}</button><button type="button" class="ib" data-act="restart" title="Restart" aria-label="Restart" ${!p || !p.online || busy ? 'disabled' : ''}>${RS}</button><button type="button" class="ib" data-act="del" title="Remove from this list" aria-label="Remove ${esc(d.name)}">${RM}</button></div>
       ${runLine}</div>`;
   }).join('') || '<div class="empty">No devices yet. Add one below.</div>';
+  const known = S.devices.filter((d) => probes[d.id]), up = known.filter((d) => probes[d.id].online), down = known.filter((d) => !probes[d.id].online);
+  const upd = S.devices.filter((d) => { const f = S.firmware.find((x) => x.id === d.fw) || {}, cur = f.current, p = probes[d.id]; return p && p.online && cur && p.version && p.version !== cur.version && !String(p.version).startsWith(cur.version); });
+  $('devSum').innerHTML = !S.devices.length ? '' : known.length < S.devices.length ? 'Checking the devices…'
+    : `<b class="${down.length ? 'off' : 'okc'}">${up.length} of ${S.devices.length} active</b>${down.length ? ' · offline: ' + down.map((d) => esc(d.name)).join(', ') : ''} · ${upd.length ? `<b class="newc">${upd.length} update${upd.length > 1 ? 's' : ''} ready</b>` : 'all up to date'}`;
 }
 async function probeAll() {
   await Promise.all(S.devices.map(async (d) => {
@@ -107,7 +116,7 @@ $('addForm').addEventListener('submit', async (ev) => {
 
 $('refresh').addEventListener('click', async () => {
   // both halves every time: GitHub for new builds, and each device (asked again, not remembered) for the version it runs
-  const b = $('refresh'); b.disabled = true; b.textContent = 'Checking…'; say($('fwMsg'), 'Checking GitHub for new builds and asking each device what it runs…');
+  const b = $('refresh'); b.disabled = true; b.classList.add('spin'); say($('fwMsg'), 'Checking GitHub for new builds and asking each device what it runs…');
   for (const d of S.devices) delete probes[d.id];
   renderDevs();
   try {
@@ -119,7 +128,7 @@ $('refresh').addEventListener('click', async () => {
     const dev = S.devices.length ? ` Asked ${S.devices.length} device${S.devices.length === 1 ? '' : 's'}` + (off.length ? `; no answer from ${off.join(', ')}.` : ': all answered.') : '';
     say($('fwMsg'), (changed.length ? 'Downloaded: ' + changed.join(', ') + '.' : failed ? 'Some builds aren’t available yet (see the cards).' : 'Builds are up to date.') + dev, (failed && !changed.length) || off.length ? 'err' : 'ok');
   } catch (e) { say($('fwMsg'), e.message, 'err'); }
-  b.disabled = false; b.textContent = 'Check for updates';
+  b.disabled = false; b.classList.remove('spin');
 });
 
 // ---------- on the network: every device the hourly check found, in groups ----------
@@ -160,7 +169,8 @@ function netRow(h) {
   const nm = (h.mac && NET.names && NET.names[h.mac]) || {};
   const names = [...new Set([...(h.dnsAll || [h.dns]), h.mdns])].filter((x) => x && x !== nm.dns);
   const skipped = h.mac && (NET.settings.piholeSkipped || []).includes(h.mac);
-  const nb = (act, label, title) => `<button type="button" class="small link" data-name="${act}" data-mac="${esc(h.mac)}" data-host="${esc(nm.dns || nm.suggest || nameOf(h))}"${title ? ` title="${esc(title)}"` : ''}>${label}</button>`;
+  const NBI = { rename: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>', remove: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>' };
+  const nb = (act, label, title) => NBI[act] ? `<button type="button" class="ib sm" data-name="${act}" data-mac="${esc(h.mac)}" data-host="${esc(nm.dns || nm.suggest || nameOf(h))}" title="${esc(title || label)}" aria-label="${esc(label)}">${NBI[act]}</button>` : `<button type="button" class="small link" data-name="${act}" data-mac="${esc(h.mac)}" data-host="${esc(nm.dns || nm.suggest || nameOf(h))}"${title ? ` title="${esc(title)}"` : ''}>${label}</button>`;
   const dnsLine = nm.dns ? `<div class="upd"><b>DNS name:</b> <span class="mono">${esc(nm.dns)}</span>${nm.ours ? ' ' + nb('rename', 'Rename') + nb('remove', 'Remove', 'Remove the name from Pi-hole and don\u2019t name this device again') : ''}</div>`
     : skipped ? `<div class="upd"><b>DNS name:</b> <span class="muted">none (you removed it)</span> ${nb('allow', 'Name it again')}</div>`
     : nm.suggest ? `<div class="upd"><b>Suggested name:</b> <span class="mono">${esc(nm.suggest)}</span> <span class="muted">(not in Pi-hole${NET.settings.piholeNames ? ' yet: added at the next check' : ''})</span></div>` : '';
@@ -275,7 +285,7 @@ function renderNet() {
   if (!NET) return;
   renderDns(); renderPing(); renderDash();
   const st = NET.settings, r = NET.result, q = $('netFilter').value.trim().toLowerCase();
-  $('netCount').textContent = r ? String(r.hosts.filter((h) => h.online).length) : '';
+  $('netCount').textContent = '';   // no number on the tab (the summary tiles have them)
   const src = r && r.sources ? Object.entries({ 'Home Assistant': r.sources.ha, 'Pi-hole': r.sources.pihole || 'not set up', mDNS: r.sources.mdns, DNS: r.sources.dns })
     .filter(([, v]) => v !== 'ok').map(([k, v]) => `${k}: ${v}`) : [];
   $('netNote').textContent = (NET.scanning ? 'Checking the network now… ' : '')
@@ -368,7 +378,7 @@ function renderStatus() {
   $('statusCount').className = 'n' + (al.length ? ' off' : '');
   $('stNote').textContent = (ST.at ? `Checked ${ago(ST.at)} (every ${ST.every > 1 ? ST.every + ' minutes' : 'minute'}).` : 'The first check runs a minute after Lickety Split starts.')
     + (ST.settings.enabled ? ` Emails go to ${ST.settings.to || '(no address set)'}.` : ' Email is off: turn it on in ⚙ Settings.');
-  const row = (a, cls) => `<div class="row ${cls}"><div><b>${esc(a.title)}</b><small>${esc([a.cat, a.detail, a.first && cls === 'al' ? 'since ' + since(a.first) : ''].filter(Boolean).join(' · '))}</small>${a.fix || a.link ? `<div class="upd"><b>How to fix:</b> ${esc(a.fix || '')}${a.link ? ` <a class="fixlink" href="${esc(a.link.href)}"${/^#/.test(a.link.href) ? '' : ' target="_blank" rel="noopener"'}>${esc(a.link.label)} \u2197</a>` : ''}</div>` : ''}</div>${cls === 'al' ? `<div class="acts-r"><button type="button" class="small" data-ignore="${esc(a.id)}" title="Don\u2019t report this again (undo below)">Ignore</button></div>` : ''}</div>`;
+  const row = (a, cls) => `<div class="row ${cls}"><div><b>${esc(a.title)}</b><small>${esc([a.cat, a.detail, a.first && cls === 'al' ? 'since ' + since(a.first) : ''].filter(Boolean).join(' · '))}</small>${a.fix || a.link ? `<div class="upd"><b>How to fix:</b> ${esc(a.fix || '')}${a.link ? ` <a class="fixlink" href="${esc(a.link.href)}"${/^#/.test(a.link.href) ? '' : ' target="_blank" rel="noopener"'}>${esc(a.link.label)} \u2197</a>` : ''}</div>` : ''}</div>${cls === 'al' ? `<div class="acts-r"><button type="button" class="ib" data-ignore="${esc(a.id)}" title="Ignore: Don\u2019t report this again (undo below)" aria-label="Ignore"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 6.1A10 10 0 0 1 22 12a14 14 0 0 1-3 3.6M6.6 6.6A14 14 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 4.4-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button></div>` : ''}</div>`;
   const byCat = {};
   for (const n of nt) (byCat[n.cat] = byCat[n.cat] || []).push(n);
   const checks = Object.entries(ST.checks || {}).sort((a, b) => a[0].localeCompare(b[0]))
