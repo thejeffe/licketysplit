@@ -506,6 +506,7 @@ setInterval(speedTick, 60000);
 // ---------- Duck Hunting (monitor.js) ----------
 const monitor = monitorLib.createMonitor({
   cfg: () => conf.monitor, net: () => conf.net, devices: () => conf.devices, probe, dataDir: CFG.dataDir, log,
+  restartDev: restart, busy: (d) => !!(otaRuns[d.id] && otaRuns[d.id].state === 'sending'),
   netResult: () => netResult, pingSummary: () => (conf.ping.url ? Object.assign(publicPing(), pingSummary()) : null),
   setCfg: (patch) => { Object.assign(conf.monitor, patch); saveConf(); },
   speed: () => ({ cfg: conf.speed, last: speedLog.slice(-2) }),

@@ -22,6 +22,14 @@ const GRACE = FAST ? 0 : 3 * 60000;           // an alert must last this long be
 const EMAIL_GAP = FAST ? 0 : 10 * 60000;      // at most one "something's wrong" email per this long (new problems wait and batch)
 const CLEAR_AFTER = FAST ? 0 : 5 * 60000;     // all clear once everything has been fine this long
 const PIHOLE_EVERY = 5 * 60000;
+// Self-repair: a device or app that stops answering gets one restart (at most once an hour each), then a re-check.
+// Fixed = it answers again; that goes under "Fixed recently" (and in the emails). Not fixed = the normal alert.
+const REPAIR_GAP = FAST ? 0 : 3600000;
+const DEV_WAIT = FAST ? 0 : 45000, APP_WAIT = FAST ? 0 : 20000;
+// This server's own apps: their page, to see they answer (a stuck app can still be "running"), and their Restart
+// button (POST /api/restart: the app exits and systemd starts it again; no sudo needed)
+const APPS = { signinator: 'http://127.0.0.1:8080', 'tree-show': 'http://127.0.0.1:8100' };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const DEFAULTS = {
   enabled: false,
@@ -337,6 +345,7 @@ function adviceFor(f, devices) {
   if (id.startsWith('pvestore:')) return 'Free space: delete old backups and unused ISOs/templates (Proxmox \u2192 the storage \u2192 Content), or prune snapshots.';
   if (id.startsWith('pvemem:')) return 'The node is nearly out of RAM: lower a VM\u2019s memory, enable ballooning, or stop something you don\u2019t need.';
   if (id.startsWith('pvebackup:')) return 'Proxmox \u2192 Datacenter \u2192 Backup \u2192 the job \u2192 Run now, and read the task log (usually the backup storage is full or unreachable).';
+  if (id.startsWith('app:')) { const n = id.slice(4); return `It is running but stuck (Lickety Split pressed its Restart; that didn’t help or it was tried in the last hour): "sudo systemctl restart ${n}", then "journalctl -u ${n} -n 50".`; }
   if (id.startsWith('svc:')) { const n = id.slice(4); return `On this server: "sudo systemctl restart ${n}", then "journalctl -u ${n} -n 50" to see why it stopped.`; }
   if (id.startsWith('ringbatt:')) return 'Charge or swap the camera\u2019s battery (Ring app \u2192 the device \u2192 Device Health shows the level). A Stick Up Cam has a removable pack; the doorbell comes off its plate with the security screw.';
   if (id.startsWith('ring:')) return 'The camera is offline: check its battery (or power) and Wi-Fi in the Ring app \u2192 Device Health. Power-cycle it (hold the setup button) if the battery is fine.';
@@ -398,6 +407,20 @@ function createMonitor(deps) {
   try { st = Object.assign(st, JSON.parse(fs.readFileSync(FILE, 'utf8'))); } catch (e) { /* first run */ }
   const save = () => fs.writeFile(FILE + '.tmp', JSON.stringify(st), (e) => { if (!e) fs.rename(FILE + '.tmp', FILE, () => {}); });
   let pihole = { at: 0, res: null, err: null }, running = false, fails = {};
+  st.repairs = st.repairs || [];        // [{ at, key, name, how, ok, why }] newest first
+  const lastTry = {};
+  // one repair: do it, wait, check again. true = it answers again
+  async function repair(key, name, how, act, verify, wait) {
+    if (Date.now() - (lastTry[key] || 0) < REPAIR_GAP) return false;
+    lastTry[key] = Date.now();
+    const r = { at: Date.now(), key, name, how, ok: false, why: '' };
+    try { await act(); await sleep(wait); await verify(); r.ok = true; }
+    catch (e) { r.why = (e && e.message) || String(e); }
+    st.repairs.unshift(r); st.repairs = st.repairs.slice(0, 30);
+    deps.log && deps.log(`Self-repair: ${name}: ${how} -> ${r.ok ? 'fixed' : 'not fixed (' + r.why + ')'}`);
+    if (r.ok) st.history.unshift({ title: `${name} stopped answering: ${how}, and it’s back`, cat: 'Fixed by Lickety Split', from: r.at, to: Date.now(), auto: true });
+    return r.ok;
+  }
   const cfg = () => Object.assign({}, DEFAULTS, deps.cfg() || {});
 
   function check(name, ok, detail) { st.checks[name] = { at: Date.now(), ok, detail: detail || '' }; }
@@ -501,6 +524,18 @@ function createMonitor(deps) {
       const sv = await serverCheck(c.services || [], force);
       const down = Object.entries(sv.services).filter(([, state]) => state !== 'active');
       for (const [name, state] of down) add('svc:' + name, 'alert', 'Server', `${name} isn\u2019t running`, `${state} on ${os.hostname()}`);
+      // running isn't enough: the apps should answer too; a stuck one gets its own Restart button pressed
+      await Promise.all(Object.keys(sv.services).filter((n) => sv.services[n] === 'active' && APPS[n]).map(async (n) => {
+        const look = () => webGet(APPS[n] + '/', { timeout: 8000 }).then((r) => { if (r.status >= 500) throw new Error('HTTP ' + r.status); });
+        try { await look(); }
+        catch (e) {
+          if (await sleep(FAST ? 0 : 15000).then(look).then(() => true, () => false)) return;   // one slow moment: fine
+          const restart = () => new Promise((ok, no) => { const q = http.request(APPS[n] + '/api/restart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 8000 },
+            (r) => { r.resume(); r.statusCode < 400 ? ok() : no(new Error('its Restart answered HTTP ' + r.statusCode)); }); q.on('timeout', () => q.destroy(new Error('its Restart didn\u2019t answer'))); q.on('error', no); q.end('{}'); });
+          if (await repair('app:' + n, n, 'pressed its Restart', restart, look, APP_WAIT)) return;
+          add('app:' + n, 'alert', 'Server', `${n} isn\u2019t answering`, `running, but its page doesn\u2019t answer (${e.message})`);
+        }
+      }));
       if (sv.aptUpdates) add('aptupd:' + os.hostname(), 'notice', 'Updates', `Update: ${os.hostname()} (this server)`, `${sv.aptUpdates} package${sv.aptUpdates > 1 ? 's' : ''}`, 0, 0);
       check('Services on ' + os.hostname(), !down.length, down.length ? down.map(([n]) => n).join(', ') + ' down' : `${Object.keys(sv.services).length} running`);
     } catch (e) { check('Services on ' + os.hostname(), false, e.message); }
@@ -526,11 +561,16 @@ function createMonitor(deps) {
     } else if (sp && sp.last.length) { const l = sp.last[sp.last.length - 1]; check('Internet speed', true, `${l.down} down / ${l.up} up Mbps`); }
 
     // your devices + watched web addresses (down = 3 misses in a row)
-    const targets = deps.devices().map((d) => ({ key: 'dev:' + d.id, name: d.name, run: () => deps.probe(d).then((p) => { if (!p.online) throw new Error(p.detail || 'no answer'); }) }))
+    const targets = deps.devices().map((d) => { const run = () => deps.probe(d).then((p) => { if (!p.online) throw new Error(p.detail || 'no answer'); });
+      return { key: 'dev:' + d.id, name: d.name, run,
+        fix: deps.restartDev && !(deps.busy && deps.busy(d)) ? () => repair('dev:' + d.id, d.name, 'restarted it', () => deps.restartDev(d), run, DEV_WAIT) : null }; })
       .concat((c.watch || []).map((w) => ({ key: 'web:' + w.url, name: w.name, run: () => webCheck(w.url) })));
     await Promise.all(targets.map(async (t) => {
       try { await t.run(); fails[t.key] = 0; check(t.name, true, ''); }
       catch (e) {
+        // missed: look again in 15 s (one blip restarts nothing); still not answering: restart it and look again
+        if (t.fix && await sleep(FAST ? 0 : 15000).then(t.run).then(() => true, () => false)) { fails[t.key] = 0; check(t.name, true, ''); return; }
+        if (t.fix && await t.fix()) { fails[t.key] = 0; check(t.name, true, 'restarted by Lickety Split'); return; }
         fails[t.key] = (fails[t.key] || 0) + 1;
         check(t.name, false, e.message);
         if (fails[t.key] >= (c.every >= 3 ? 1 : 3)) add(t.key, 'alert', 'Devices', `${t.name} isn’t answering`, e.name === 'TimeoutError' ? 'no answer' : e.message);
@@ -588,7 +628,7 @@ function createMonitor(deps) {
     const now = Date.now(), al = confirmed(), pending = Object.values(st.active).filter((a) => a.sev === 'alert' && now - a.first < a.grace);
     return { at: st.at || 0, enabled: cfg().enabled, every: +cfg().every || 5, alerts: al.sort((a, b) => a.first - b.first), pending, notices: notices().sort((a, b) => a.cat.localeCompare(b.cat) || a.title.localeCompare(b.title)),
       perDuck: Object.values(st.active).filter((a) => a.sev === 'alert' || a.cat === 'Updates').reduce((m, a) => { const k = duckOf(a.id); m[k] = (m[k] || 0) + 1; return m; }, {}),
-      checks: st.checks, history: st.history.slice(0, 20), emails: st.emails.slice(0, 15), ignored: (cfg().ignore || []).map((id) => ({ id, title: (st.titles || {})[id] || id })) };
+      checks: st.checks, history: st.history.slice(0, 20), repairs: st.repairs.slice(0, 10), emails: st.emails.slice(0, 15), ignored: (cfg().ignore || []).map((id) => ({ id, title: (st.titles || {})[id] || id })) };
   }
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   function emailBody(kind, extra) {
