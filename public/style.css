@@ -367,3 +367,4 @@ details>summary:hover::after{opacity:1}
 .grp>summary{display:flex;align-items:baseline;gap:8px}
 .grp>summary::after{margin-left:auto;align-self:center}
 .ndd>summary::after{margin-left:6px}
+.mails .okc{color:var(--ok)}
