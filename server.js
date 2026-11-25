@@ -435,12 +435,12 @@ let speedLog = [], speedRun = null, speedError = null;
 try { speedLog = JSON.parse(fs.readFileSync(SPEED_FILE, 'utf8')); } catch (e) { /* none yet */ }
 function runSpeed() {
   if (speedRun) return speedRun;
-  speedRun = speedtest.runTest({ home: CFG.dataDir, log }).then((r) => {   // (Ookla's program keeps its license note in HOME)
+  speedRun = speedtest.runTest({ home: CFG.dataDir }).then((r) => {   // (Ookla's program keeps its license note in HOME)
     speedLog.push(r); speedError = null;
     const cut = Date.now() - SPEED_KEEP;
     while (speedLog.length && speedLog[0].t < cut) speedLog.shift();
     fs.writeFile(SPEED_FILE + '.tmp', JSON.stringify(speedLog), (e) => { if (!e) fs.rename(SPEED_FILE + '.tmp', SPEED_FILE, () => {}); });
-    log(`Speed test (${r.engine === 'ookla' ? 'Ookla, ' + r.server : 'built-in'}): ${r.down} down, ${r.up} up Mbps, ${r.ping} ms`);
+    log(`Speed test (${r.server}): ${r.down} down, ${r.up} up Mbps, ${r.ping} ms`);
     return r;
   }).catch((e) => {
     speedError = { at: Date.now(), until: e.until || 0, msg: e.name === 'TimeoutError' ? 'no answer from the test server'
@@ -457,7 +457,7 @@ function speedTick() {
   const lastTry = Math.max(last ? last.t : 0, speedError ? speedError.at : 0);
   if (Date.now() - lastTry >= every * 60000 - 30000) runSpeed().catch(() => {});
 }
-function publicSpeed() { return { engine: speedtest.ooklaReady() ? 'ookla' : 'cloudflare', every: conf.speed.every, minDown: conf.speed.minDown, minUp: conf.speed.minUp, running: !!speedRun, error: speedError, last: speedLog[speedLog.length - 1] || null }; }
+function publicSpeed() { return { installed: speedtest.ooklaReady(), every: conf.speed.every, minDown: conf.speed.minDown, minUp: conf.speed.minUp, running: !!speedRun, error: speedError, last: speedLog[speedLog.length - 1] || null }; }
 function cleanSpeed(b) {
   const c = Object.assign({}, conf.speed);
   if ('every' in b) c.every = [0, 15, 30, 60, 180, 360, 720, 1440].includes(+b.every) ? +b.every : 60;

@@ -387,7 +387,7 @@ function renderSpeed() {
   $('speedBox').hidden = !on; if (!on) return;
   const h = sp.history || [], l = sp.last;
   $('speedNote').innerHTML = (l ? `<b>↓ ${mbps(l.down)} Mbps</b> · <b>↑ ${mbps(l.up)} Mbps</b> · ${l.ping} ms (±${l.jitter})${l.loss ? ` · ${l.loss}% lost` : ''} · ${ago(l.t)}`
-      + (l.engine === 'ookla' ? ` · <span title="Speedtest by Ookla">${esc(l.server || 'Speedtest')}</span>${l.url ? ` · <a href="${esc(l.url)}" target="_blank" rel="noopener">result</a>` : ''}` : ' · built-in test') : 'No test yet.')
+      + (l.server ? ` · <span title="Speedtest by Ookla">${esc(l.server)}</span>` : '') + (l.url ? ` · <a href="${esc(l.url)}" target="_blank" rel="noopener">result</a>` : '') : 'No test yet.')
     + (sp.every ? ` · every ${sp.every >= 60 ? (sp.every / 60) + ' h' : sp.every + ' min'}` : ' · automatic tests are off (⚙ Settings → General)')
     + (sp.running ? ' · <b>testing now…</b>' : '') + (sp.error ? ` · <span class="off">last try failed: ${esc(sp.error.msg)}</span>` : '');
   $('speedRun').disabled = !!sp.running;
@@ -407,6 +407,9 @@ function renderSpeed() {
     return { t: r.t, v: v.reduce((p, q) => p + q, 0) / v.length };
   });
   const line = (k, fy) => curve(smooth(k).map((p) => [x(p.t), fy(p.v)]), h.map((r) => r.t));
+  // the newest test is old (tries failed since): each line carries on to now, dashed (not measured)
+  const lastT = h[h.length - 1].t, stale = Date.now() - lastT > Math.max(2, (sp.every || 60) * 1.5) * 60000;
+  const tail = (k, fy) => { if (!stale) return ''; const p = smooth(k).pop(); return `M${x(p.t).toFixed(1)},${fy(p.v).toFixed(1)}L${(W - R).toFixed(1)},${fy(p.v).toFixed(1)}`; };
   let grid = '';
   for (let v = 0; v <= top; v += step) grid += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
   for (let v = 0; v <= topP; v += topP / 2) grid += `<text x="${W - R + 6}" y="${yp(v) + 4}">${v}</text>`;
@@ -420,14 +423,14 @@ function renderSpeed() {
     + `<circle cx="${x(r.t).toFixed(1)}" cy="${y(r.down).toFixed(1)}" r="2.2" fill="var(--accent)" opacity=".45">${tip(r)}</circle>`).join('');
   $('speedChart').innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Internet speed over time">${grid}
     <text x="${L - 6}" y="10" text-anchor="end">Mbps</text><text x="${W - R + 6}" y="10">ms</text>
-    <path class="ping" d="${line('ping', yp)}"/><path class="up" d="${line('up', y)}"/><path class="down" d="${line('down', y)}"/>${dots}</svg>
+    <path class="ping" d="${line('ping', yp)}"/><path class="up" d="${line('up', y)}"/><path class="down" d="${line('down', y)}"/>${stale ? `<path class="ping tail" d="${tail('ping', yp)}"/><path class="up tail" d="${tail('up', y)}"/><path class="down tail" d="${tail('down', y)}"/>` : ''}${dots}</svg>
     <div class="legend"><span><i style="background:var(--accent)"></i>download</span><span><i style="background:var(--ok)"></i>upload</span><span><i style="background:var(--muted);height:2px"></i>ping (right scale)</span><span>${h.length} tests (lines are averaged, dots are single tests) · typical ↓ ${mbps(median(h.map((r) => r.down)))} ↑ ${mbps(median(h.map((r) => r.up)))}</span></div>`;
 }
 // A smooth path through points (monotone cubic: no bumps past the data); a break where tests stopped for over 6 hours.
 function curve(pts, ts) {
   let d = '';
   for (let s0 = 0; s0 < pts.length;) {
-    let e = s0 + 1; while (e < pts.length && ts[e] - ts[e - 1] <= 6 * 3600000) e++;
+    let e = pts.length;   // one line across any gaps (failed or skipped tests): it carries straight on
     const P = pts.slice(s0, e), n = P.length;
     d += `M${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`;
     if (n > 1) {
