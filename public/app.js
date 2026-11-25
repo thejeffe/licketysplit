@@ -150,9 +150,7 @@ function netRow(h) {
   const u = h.update;
   if (h.group === 'licketysplit') {
     const f = S.firmware.find((x) => x.id === h.fw), cur = f && f.current, mine = mineFor(h);
-    const isNew = cur && h.version && h.version !== cur.version && !String(h.version).startsWith(cur.version);
-    upd = `<div class="upd"><b>Update:</b> ${esc(u ? u.how : 'Lickety Split')} · ${esc(f ? f.name : h.fw)} ${esc(h.version || '?')}${cur ? ` → ${esc(cur.version)}` : ''}</div>`;
-    if (isNew) badges.push('<span class="badge new">update ready</span>');
+    upd = `<div class="upd"><b>Firmware:</b> ${esc(f ? f.name : h.fw)} ${esc(h.version || '?')} · updated from the <a href="#firmware" data-gofw="1">Firmware tab</a></div>`;   // (its updates are shown there, not here)
     act = mine ? `<span class="badge ok">in your devices</span>` : h.ip ? `<button type="button" class="small" data-add="${esc(h.key)}">Add to your devices</button>` : '';
   } else if (u) {
     const v = u.installed || u.latest ? ` · ${esc(u.installed || '?')}${u.latest && u.latest !== u.installed ? ' → ' + esc(u.latest) : ''}` : '';
@@ -254,10 +252,8 @@ function renderPing() {
 
 let netView = '';   // a summary tile's view: '', 'new', 'upd', 'off'
 // an update to install: the same rule as the badges (Lickety Split's own firmware newer than the device's, or an update the device reports)
-const isUpd = (h) => {
-  if (h.group === 'licketysplit') { const f = S.firmware.find((x) => x.id === h.fw), cur = f && f.current; return !!(cur && h.version && h.version !== cur.version && !String(h.version).startsWith(cur.version)); }
-  return !!(h.update && h.update.available);
-};
+// (devices Lickety Split updates are left out: their updates are on the Firmware tab)
+const isUpd = (h) => h.group !== 'licketysplit' && !!(h.update && h.update.available);
 const inView = (h) => !netView || (netView === 'new' ? h.firstSeen > Date.now() - 86400000 : netView === 'upd' ? isUpd(h) : netView === 'off' ? !h.online : true);
 function renderDash() {
   const r = NET.result, hs = (r && r.hosts) || [], d = r && r.dnsStats, p = NET.ping;
@@ -318,6 +314,7 @@ $('netScan').addEventListener('click', async () => {
   renderNet();
 });
 $('netList').addEventListener('click', nameAction);
+$('netList').addEventListener('click', (ev) => { if (ev.target.closest('[data-gofw]')) { ev.preventDefault(); showTab('fw'); scrollTo(0, 0); } });
 $('netList').addEventListener('click', async (ev) => {
   const b = ev.target.closest('button[data-add]'); if (!b) return;
   const h = NET.result.hosts.find((x) => x.key === b.dataset.add); if (!h) return;
