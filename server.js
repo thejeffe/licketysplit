@@ -468,7 +468,13 @@ function speedTick() {
   const lastTry = Math.max(last ? last.t : 0, speedError ? speedError.at : 0);
   if (Date.now() - lastTry >= every * 60000 - 30000) runSpeed().catch(() => {});
 }
-function publicSpeed() { return { installed: speedtest.ooklaReady(), every: conf.speed.every, minDown: conf.speed.minDown, minUp: conf.speed.minUp, running: !!speedRun, error: speedError, last: speedLog[speedLog.length - 1] || null }; }
+// when the next automatic test runs (as speedTick decides: the last try + the interval, not before a refusal's wait ends)
+function nextSpeed() {
+  const every = +conf.speed.every || 0; if (!every) return null;
+  const last = speedLog[speedLog.length - 1], lastTry = Math.max(last ? last.t : 0, speedError ? speedError.at : 0);
+  return Math.max(lastTry + every * 60000 - 30000, speedError && speedError.until || 0, Date.now());
+}
+function publicSpeed() { return { installed: speedtest.ooklaReady(), next: speedRun ? null : nextSpeed(), every: conf.speed.every, minDown: conf.speed.minDown, minUp: conf.speed.minUp, running: !!speedRun, error: speedError, last: speedLog[speedLog.length - 1] || null }; }
 function cleanSpeed(b) {
   const c = Object.assign({}, conf.speed);
   if ('every' in b) c.every = [0, 15, 30, 60, 180, 360, 720, 1440].includes(+b.every) ? +b.every : 60;

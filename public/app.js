@@ -381,6 +381,13 @@ setInterval(() => { if (!document.hidden) loadStatus(); }, 60000);
 // ---------- internet speed: history chart ----------
 let SPEED = null, speedDays = 1;   // the chart opens on the last 24 hours
 const mbps = (v) => v >= 100 ? Math.round(v) : v.toFixed(1);
+// "at 1:10 AM", "tomorrow 1:10 AM", or "in a moment"
+function nextWhen(t) {
+  if (t - Date.now() < 90000) return 'in a moment';
+  const d = new Date(t), now = new Date(), tm = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(), dd = Math.round((day(d) - day(now)) / 86400000);
+  return dd === 0 ? 'at ' + tm : dd === 1 ? 'tomorrow ' + tm : d.toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + tm;
+}
 function renderSpeed() {
   const sp = SPEED; if (!sp) return;
   const on = sp.every > 0 || (sp.history && sp.history.length);
@@ -389,6 +396,7 @@ function renderSpeed() {
   $('speedNote').innerHTML = (l ? `<b>↓ ${mbps(l.down)} Mbps</b> · <b>↑ ${mbps(l.up)} Mbps</b> · ${l.ping} ms (±${l.jitter})${l.loss ? ` · ${l.loss}% lost` : ''} · ${ago(l.t)}`
       + (l.server ? ` · <span title="Speedtest by Ookla">${esc(l.server)}</span>` : '') + (l.url ? ` · <a href="${esc(l.url)}" target="_blank" rel="noopener">result</a>` : '') : 'No test yet.')
     + (sp.every ? ` · every ${sp.every >= 60 ? (sp.every / 60) + ' h' : sp.every + ' min'}` : ' · automatic tests are off (⚙ Settings → General)')
+    + (sp.every && sp.next && !sp.running ? ` · next ${nextWhen(sp.next)}` : '')
     + (sp.running ? ' · <b>testing now…</b>' : '') + (sp.error ? ` · <span class="off">last try failed: ${esc(sp.error.msg)}</span>` : '');
   $('speedRun').disabled = !!sp.running;
   for (const b of $('speedRange').querySelectorAll('button')) b.setAttribute('aria-pressed', String(+b.dataset.days === speedDays));
