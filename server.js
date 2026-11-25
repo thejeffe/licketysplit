@@ -271,6 +271,13 @@ function publicNet() {
 async function useDnsNames(result) {
   const byIp = {}; for (const h of (result && result.hosts) || []) if (h.ip && h.dns) byIp[h.ip] = h.dns;
   let changed = false;
+  // and back: a name that no longer resolves goes back to the device's address from the last check
+  const byName = {}; for (const h of (result && result.hosts) || []) if (h.ip) for (const n of [h.dns, ...(h.dnsAll || [])]) if (n) byName[n] = h.ip;
+  for (const d of conf.devices) {
+    if (require('net').isIP(d.host) || !byName[d.host]) continue;
+    try { await require('dns').promises.lookup(d.host, { family: 4 }); continue; } catch (e) { /* gone: fall back */ }
+    log(`Device ${d.name}: ${d.host} no longer resolves -> ${byName[d.host]} (its address)`); d.host = byName[d.host]; changed = true;
+  }
   for (const d of conf.devices) {
     const name = require('net').isIP(d.host) && byIp[d.host]; if (!name) continue;
     try { const r = await require('dns').promises.lookup(name, { family: 4 }); if (r.address !== d.host) continue; } catch (e) { continue; }
