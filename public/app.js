@@ -214,7 +214,7 @@ function renderDns() {
   }
   const sumLine = d ? `Pi-hole · last 24 h: ${Number(d.total || 0).toLocaleString()} queries, ${(+d.percent || 0).toFixed(1)}% blocked, ${Number(d.clients || 0).toLocaleString()} devices` : 'Pi-hole names';
   const wasOpen = $('dnsBox').querySelector('details') && $('dnsBox').querySelector('details').open;
-  $('dnsBox').innerHTML = html ? `<details class="dnsd"${wasOpen ? ' open' : ''}><summary>${sumLine} <span class="more">details ▾</span></summary>${html}</details>` : '';
+  $('dnsBox').innerHTML = html ? `<details class="dnsd"${wasOpen ? ' open' : ''}><summary>${sumLine}</summary>${html}</details>` : '';
 }
 async function nameAction(ev) {
   const b = ev.target.closest('button[data-name]'); if (!b) return;
@@ -244,7 +244,7 @@ function renderPing() {
     return `<i class="${cls}" title="${24 - i} h ago: ${okOf(h.ok, h.fail)}"></i>`;
   }).join('');
   const last = p.last ? ` · last ${ago(p.last.at)}${p.last.ok ? '' : ' <span class="off">failed (' + esc(p.last.status) + ')</span>'}` : '';
-  $('pingSum').innerHTML = `<span>Health ping (${esc(p.host)}): ${okOf(p.ok, p.fail)} in the last 24 h${last}</span><span class="strip">${cells}</span><span>log ▾</span>`;
+  $('pingSum').innerHTML = `<span>Health ping (${esc(p.host)}): ${okOf(p.ok, p.fail)} in the last 24 h${last}</span><span class="strip">${cells}</span><span class="more">log</span>`;
   // the log, short: by 10 minutes for the last hour, then by the hour, each "(Z%) X of Y OK", newest first; a slot's
   // failures listed under it
   const hm = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });

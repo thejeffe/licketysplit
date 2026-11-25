@@ -166,8 +166,6 @@ textarea{font:13px var(--mono);width:100%;padding:8px 10px;border-radius:8px;bor
 .grp{margin-top:12px}
 .grp > summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:8px;padding:4px 2px;font:italic 700 18px/1.1 var(--display);text-transform:uppercase;letter-spacing:.02em}
 .grp > summary::-webkit-details-marker{display:none}
-.grp > summary::before{content:"▸";font-style:normal;color:var(--muted);transition:transform .15s}
-.grp[open] > summary::before{transform:rotate(90deg)}
 .grp > summary .n{font:500 13px var(--body);color:var(--muted);text-transform:none;letter-spacing:0}
 .grp > .note{margin:0 0 8px 18px}
 .nd{grid-template-columns:minmax(0,1fr) minmax(0,auto)}
@@ -357,3 +355,15 @@ dialog[open]{margin:max(12px, env(safe-area-inset-top, 0px)) auto auto}
 .legend>span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .legend>span i{display:inline-block;width:14px;height:3px;border-radius:2px;flex:none}
 .legend>span:last-child{white-space:normal}
+
+/* every drawer (details) shows it opens: a chevron at the end of its line, pointing down when closed and up when open */
+details>summary{list-style:none;cursor:pointer}
+details>summary::-webkit-details-marker{display:none}
+details>summary::marker{content:''}
+details>summary::after{content:'';display:inline-block;flex:none;width:7px;height:7px;margin:0 4px 3px 10px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;
+ transform:rotate(45deg);opacity:.55;transition:transform .2s;vertical-align:middle}
+details[open]>summary::after{transform:rotate(225deg);margin-bottom:-2px}
+details>summary:hover::after{opacity:1}
+.grp>summary{display:flex;align-items:baseline;gap:8px}
+.grp>summary::after{margin-left:auto;align-self:center}
+.ndd>summary::after{margin-left:6px}
