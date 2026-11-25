@@ -25,6 +25,7 @@ const PIHOLE_EVERY = 5 * 60000;
 // Self-repair: a device or app that stops answering gets one restart (at most once an hour each), then a re-check.
 // Fixed = it answers again; that goes under "Fixed recently" (and in the emails). Not fixed = the normal alert.
 const REPAIR_GAP = FAST ? 0 : 3600000;
+const PIHOLE_OFF_MAX = FAST ? 0 : 4 * 3600000;   // Pi-hole blocking switched off this long: turn it back on
 const DEV_WAIT = FAST ? 0 : 45000, APP_WAIT = FAST ? 0 : 20000;
 // This server's own apps: their page, to see they answer (a stuck app can still be "running"), and their Restart
 // button (POST /api/restart: the app exits and systemd starts it again; no sudo needed)
@@ -295,6 +296,22 @@ async function piholeCheck(url, password) {
   return out;
 }
 
+// Turn Pi-hole's blocking back on (the self-repair for blocking left off too long)
+async function piholeEnable(url, password) {
+  const base = url.replace(/\/+$/, '');
+  const call = async (method, p, sid, body) => {
+    const res = await fetch(base + p, { method, signal: AbortSignal.timeout(15000),
+      headers: Object.assign({ 'Content-Type': 'application/json' }, sid ? { 'X-FTL-SID': sid } : {}), body: body ? JSON.stringify(body) : undefined });
+    if (res.status === 401) throw new Error('Pi-hole refused the password');
+    if (!res.ok) throw new Error('Pi-hole API: HTTP ' + res.status);
+    return res.status === 204 ? null : res.json();
+  };
+  const a = await call('POST', '/api/auth', null, { password });
+  const sid = a.session && a.session.sid;
+  try { const r = await call('POST', '/api/dns/blocking', sid, { blocking: true, timer: null }); if (r && r.blocking && r.blocking !== 'enabled') throw new Error('Pi-hole says blocking is ' + r.blocking); }
+  finally { if (sid) await call('DELETE', '/api/auth', sid).catch(() => {}); }
+}
+
 async function webCheck(url) {
   const t0 = Date.now();
   const r = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: 'manual' });
@@ -320,7 +337,7 @@ function adviceFor(f, devices) {
   if (id.startsWith('auto:')) return 'Home Assistant → Settings → Automations: open it and look for the red error (usually an entity that was renamed or removed). Also check Settings → Repairs, then reload automations.';
   if (id === 'ha') return 'Check the Home Assistant machine is on and on the network (open its page). If the page doesn’t load, restart it; if it loads slowly, check Settings → System → Repairs and the disk space.';
   if (id === 'pihole') return 'Open the Pi-hole page. If it is down, run "sudo systemctl restart pihole-FTL" on the Pi (or restart its container).';
-  if (id === 'piholeblk') return 'Pi-hole → Settings → turn blocking back on, or run "pihole enable" on the Pi. Someone (or a timer) switched it off.';
+  if (id === 'piholeblk') return 'Lickety Split turns blocking back on once it has been off 4 hours. To do it now: Pi-hole → Settings → turn blocking back on, or run "pihole enable" on the Pi.';
   if (id === 'piholegrav') return 'Pi-hole → Tools → Update Gravity, or "pihole -g" on the Pi.';
   if (id === 'piholeapi') return 'DNS works; restart the web part with "sudo systemctl restart pihole-FTL" on the Pi.';
   if (id === 'disk' || id === 'disklow') return 'On this server: "sudo apt clean", "sudo journalctl --vacuum-size=200M", and remove old backups. "sudo du -xh / | sort -h | tail" shows what is big.';
@@ -471,7 +488,18 @@ function createMonitor(deps) {
       if (pihole.err && !p.dnsOk) add('pihole', 'alert', 'Pi-hole', 'Pi-hole isn’t answering', pihole.err);
       else if (p.dnsOk === false) add('pihole', 'alert', 'Pi-hole', 'Pi-hole isn’t answering DNS', p.dnsError || '');
       else if (pihole.err) add('piholeapi', 'notice', 'Pi-hole', 'Pi-hole’s web API isn’t answering', pihole.err, 0);
-      if (p.blocking && p.blocking !== 'enabled') add('piholeblk', 'alert', 'Pi-hole', `Pi-hole blocking is ${p.blocking}`, 'ads and trackers aren’t blocked');
+      if (p.blocking === 'disabled') {
+        // switched off (by someone, or a timer that never ran out): after 4 hours, turn it back on
+        st.piOffSince = st.piOffSince || pihole.at || now;
+        const back = st.piOffSince + PIHOLE_OFF_MAX;
+        if (now >= back && await repair('piholeblk', 'Pi-hole blocking', `turned it back on (it was off ${mins(now - st.piOffSince)})`,
+          () => piholeEnable(net.piholeUrl, net.piholePassword), () => piholeCheck(net.piholeUrl, net.piholePassword).then((q) => { if (q.blocking !== 'enabled') throw new Error('still ' + q.blocking); pihole = { at: Date.now(), res: q, err: null }; }), FAST ? 0 : 3000)) {
+          p.blocking = 'enabled'; st.piOffSince = 0;
+        } else add('piholeblk', 'alert', 'Pi-hole', 'Pi-hole blocking is disabled', `ads and trackers aren’t blocked · Lickety Split turns it back on ${now >= back ? 'at the next try' : 'at ' + new Date(back).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`);
+      } else {
+        if (p.blocking) st.piOffSince = 0;
+        if (p.blocking && p.blocking !== 'enabled') add('piholeblk', 'alert', 'Pi-hole', `Pi-hole blocking is ${p.blocking}`, 'ads and trackers aren’t blocked');
+      }
       if (p.gravityAt && now - p.gravityAt > 8 * 86400000) add('piholegrav', 'notice', 'Pi-hole', `Pi-hole block lists last updated ${mins(now - p.gravityAt)} ago`, 'Tools → Update Gravity', 0, 0);
       for (const u of p.updates || []) add('piholeupd:' + u.part, 'notice', 'Updates', `Update: Pi-hole ${u.part}`, `${u.loc} → ${u.rem}`, 0, 0);
       check('Pi-hole', !!p.dnsOk && !pihole.err, pihole.err || (p.dnsOk ? `DNS OK · blocking ${p.blocking || '?'}` : 'DNS not answering'));
