@@ -29,15 +29,16 @@
   <div class="menu"><button type="button" id="menuBtn" class="menubtn" aria-haspopup="menu" aria-expanded="false" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><div class="menupop" id="menuPop" role="menu" hidden><button type="button" role="menuitem" id="reloadBtn"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg><span>Reload</span></button><button type="button" role="menuitem" id="setBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg><span>Settings</span></button></div></div>
  </nav>
 
+ <section class="box" id="speedBox" data-pane="status" hidden>
+   <div class="boxhead"><h2>Internet speed</h2><div class="acts-r"><span class="seg" id="speedRange"><button type="button" data-days="1" aria-pressed="true">24 h</button><button type="button" data-days="7">7 days</button><button type="button" data-days="30">30 days</button></span><button type="button" class="small" id="speedRun">Test now</button></div></div>
+   <p class="note" id="speedNote"></p>
+   <div id="speedChart"></div>
+ </section>
+
  <section class="box" id="statusBox" data-pane="status" hidden>
   <div class="boxhead"><h2 id="stHead">Status</h2><button type="button" class="small" id="stCheck">Check now</button></div>
   <p class="note" id="stNote"></p>
   <p class="msg boxmsg" id="stMsg" role="status"></p>
-  <div class="st-sec" id="speedBox" style="margin-top:4px" hidden>
-   <div class="boxhead"><h3 style="margin:0">Internet speed</h3><div class="acts-r"><span class="seg" id="speedRange"><button type="button" data-days="1" aria-pressed="true">24 h</button><button type="button" data-days="7">7 days</button><button type="button" data-days="30">30 days</button></span><button type="button" class="small" id="speedRun">Test now</button></div></div>
-   <p class="note" id="speedNote"></p>
-   <div id="speedChart"></div>
-  </div>
   <div id="stBody"></div>
  </section>
 

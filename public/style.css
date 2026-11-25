@@ -250,7 +250,8 @@ body[data-trouble]:not([data-trouble="0"]) .banner .title span{color:#ffd38a}
 
 .okmark{width:44px;height:44px;flex:none;fill:none;stroke:var(--ok);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 .fixduck{width:190px;height:80px;flex:none}
-@media (max-width:420px){.tabs{gap:0}.tabs [role="tab"]{padding:8px 6px;font-size:16px}.tabs .n{font-size:11px}.tabs .menubtn{width:38px}}
+@media (max-width:520px){.tabs{gap:0}.tabs [role="tab"]{padding:8px 6px;font-size:16px}.tabs .n{font-size:11px}.tabs .menubtn{width:38px}}
+.wrap>*{min-width:0}
 #fwMsg:empty{display:none}
 #fwMsg{margin:2px 0 8px}
 .boxmsg:empty{display:none}
