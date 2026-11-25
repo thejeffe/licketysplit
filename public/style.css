@@ -273,3 +273,8 @@ dialog{--dtop:-16px}
 /* dialogs sit at the top of the screen (not centred), so they don't jump about when their length changes */
 dialog[open]{margin:max(12px, env(safe-area-inset-top, 0px)) auto auto}
 .chart path.tail{stroke-dasharray:4 4;opacity:.6}
+
+/* links: each device's own page, and where to fix a problem */
+.devlink{color:inherit;text-decoration:none}.devlink:hover{text-decoration:underline}
+.devhost{color:inherit}
+.fixlink{white-space:nowrap;font-weight:600;color:var(--accent)}

@@ -42,7 +42,7 @@ function renderDevs() {
     const busy = run && run.state === 'sending';
     const runLine = run ? `<div class="run ${esc(run.state)}"><b>${{ sending: 'Updating', done: 'Last update', error: 'Update failed' }[run.state] || 'Update'}</b> · ${esc(new Date(run.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} · ${esc(run.msg)}</div>` : '';
     return `<div class="row dev" data-id="${esc(d.id)}">
-      <div><b>${esc(d.name)}</b><small>${esc(d.host)}${p && p.detail ? ' · ' + esc(p.detail) : ''}</small></div>
+      <div><b><a class="devlink" href="http://${esc(d.host)}/" target="_blank" rel="noopener" title="Open ${esc(d.name)}\u2019s own page">${esc(d.name)} \u2197</a></b><small><a class="devhost" href="http://${esc(d.host)}/" target="_blank" rel="noopener">${esc(d.host)}</a>${p && p.detail ? ' · ' + esc(p.detail) : ''}</small></div>
       <div><small>${esc(f.name || d.fw)}</small>${running} → ${newest}</div>
       <div class="acts-r"><button type="button" class="small ${isNew ? 'pri' : ''}" data-act="ota" ${!cur || !p || !p.online || busy ? 'disabled' : ''}>${busy ? 'Updating…' : 'Update'}</button><button type="button" class="small" data-act="restart" title="Restart the device" ${!p || !p.online || busy ? 'disabled' : ''}>Restart</button><button type="button" class="small" data-act="del" title="Remove from this list" aria-label="Remove ${esc(d.name)}">✕</button></div>
       ${runLine}</div>`;
@@ -343,7 +343,7 @@ function renderStatus() {
   $('statusCount').className = 'n' + (al.length ? ' off' : '');
   $('stNote').textContent = (ST.at ? `Checked ${ago(ST.at)} (every ${ST.every > 1 ? ST.every + ' minutes' : 'minute'}).` : 'The first check runs a minute after Lickety Split starts.')
     + (ST.settings.enabled ? ` Emails go to ${ST.settings.to || '(no address set)'}.` : ' Email is off: turn it on in ⚙ Settings.');
-  const row = (a, cls) => `<div class="row ${cls}"><div><b>${esc(a.title)}</b><small>${esc([a.cat, a.detail, a.first && cls === 'al' ? 'since ' + since(a.first) : ''].filter(Boolean).join(' · '))}</small>${a.fix ? `<div class="upd"><b>How to fix:</b> ${esc(a.fix)}</div>` : ''}</div>${cls === 'al' ? `<div class="acts-r"><button type="button" class="small" data-ignore="${esc(a.id)}" title="Don\u2019t report this again (undo below)">Ignore</button></div>` : ''}</div>`;
+  const row = (a, cls) => `<div class="row ${cls}"><div><b>${esc(a.title)}</b><small>${esc([a.cat, a.detail, a.first && cls === 'al' ? 'since ' + since(a.first) : ''].filter(Boolean).join(' · '))}</small>${a.fix || a.link ? `<div class="upd"><b>How to fix:</b> ${esc(a.fix || '')}${a.link ? ` <a class="fixlink" href="${esc(a.link.href)}"${/^#/.test(a.link.href) ? '' : ' target="_blank" rel="noopener"'}>${esc(a.link.label)} \u2197</a>` : ''}</div>` : ''}</div>${cls === 'al' ? `<div class="acts-r"><button type="button" class="small" data-ignore="${esc(a.id)}" title="Don\u2019t report this again (undo below)">Ignore</button></div>` : ''}</div>`;
   const byCat = {};
   for (const n of nt) (byCat[n.cat] = byCat[n.cat] || []).push(n);
   const checks = Object.entries(ST.checks || {}).sort((a, b) => a[0].localeCompare(b[0]))

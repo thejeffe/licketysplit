@@ -356,6 +356,30 @@ function adviceFor(f, devices) {
   return '';
 }
 
+// Where to go and fix a problem: { href, label } (the page that shows or fixes it), or null. Pages on the LAN.
+function linkFor(f, devices, net, c) {
+  const id = f.id, t = f.title || '', after = id.slice(id.indexOf(':') + 1);
+  const ha = (net && net.haUrl || '').replace(/\/+$/, ''), pve = (c && c.pveUrl || '').replace(/\/+$/, ''),
+    pihole = (net && net.piholeUrl || '').replace(/\/+$/, ''), printer = (c && c.printerUrl || '').replace(/\/+$/, '');
+  const ent = (e) => (ha && /^[a-z_]+\.[a-z0-9_]+$/.test(e) ? { href: ha + '/history?entity_id=' + encodeURIComponent(e), label: 'Open in Home Assistant' } : ha ? { href: ha, label: 'Open Home Assistant' } : null);
+  if (/^(lock|door|garage|ring|ringbatt):/.test(id)) return ent(after);
+  if (id.startsWith('auto:')) return ha ? { href: ha + '/config/automation/dashboard', label: 'Open automations' } : null;
+  if (id === 'ha') return ha ? { href: ha, label: 'Open Home Assistant' } : null;
+  if (/^pihole/.test(id)) return pihole ? { href: pihole + (/\/admin\b/.test(pihole) ? '' : '/admin/'), label: 'Open Pi-hole' } : null;
+  if (/^pve/.test(id)) return pve ? { href: pve, label: 'Open Proxmox' } : null;
+  if (/^printer/.test(id)) return printer ? { href: printer, label: 'Open the printer' } : null;
+  if (id.startsWith('dev:')) { const d = (devices || []).find((x) => 'dev:' + x.id === id); return d ? { href: 'http://' + d.host + '/', label: 'Open ' + d.name } : null; }
+  if (id.startsWith('web:')) return /^https?:\/\//.test(after) ? { href: after, label: 'Open it' } : null;
+  if (id === 'speed') return { href: 'https://www.speedtest.net/', label: 'Speedtest' };
+  if (id.startsWith('upd:') || id.startsWith('piholeupd:')) {
+    if (/^Update: Proxmox/.test(t)) return pve ? { href: pve, label: 'Open Proxmox' } : null;
+    if (/pi-?hole/i.test(t)) return pihole ? { href: pihole + (/\/admin\b/.test(pihole) ? '' : '/admin/'), label: 'Open Pi-hole' } : null;
+    if (/wled/i.test(t)) return { href: '#firmware', label: 'Firmware tab' };
+    return ha ? { href: ha + '/config/updates', label: 'Open Home Assistant updates' } : null;
+  }
+  return null;     // on this server (services, disk, apt): the advice says what to run
+}
+
 // which duck (a setting on the Ducks tab) a problem belongs to
 function duckOf(id) {
   const k = id.split(':')[0];
@@ -546,7 +570,7 @@ function createMonitor(deps) {
       seen.add(f.id);
       st.titles[f.id] = f.title.replace(/ open for .*$/, '').replace(/ isn\u2019t answering$/, '');
       const a = st.active[f.id];
-      st.active[f.id] = Object.assign({}, f, { first: a ? a.first : now, mailed: a ? a.mailed : false, fix: adviceFor(f, deps.devices()) });
+      st.active[f.id] = Object.assign({}, f, { first: a ? a.first : now, mailed: a ? a.mailed : false, fix: adviceFor(f, deps.devices()), link: linkFor(f, deps.devices(), deps.net(), cfg()) });
     }
     for (const id of Object.keys(st.active)) {
       if (seen.has(id)) continue;
@@ -572,7 +596,7 @@ function createMonitor(deps) {
     const sec = (title, items, fmt) => items.length ? { title, items: items.map(fmt) } : null;
     const parts = [
       kind === 'clear' ? { title: 'All clear', items: ['Everything is working again.'] } : null,
-      sec('What’s wrong', r.alerts, (a) => ({ line: `${a.title}${a.detail ? ' — ' + a.detail : ''} (since ${when(a.first)})`, fix: a.fix })),
+      sec('What’s wrong', r.alerts, (a) => ({ line: `${a.title}${a.detail ? ' — ' + a.detail : ''} (since ${when(a.first)})`, fix: a.fix + (a.link && /^https?:/.test(a.link.href) ? ` (${a.link.label}: ${a.link.href})` : '') })),
       sec('Updates to install', r.notices, (a) => ({ line: `${a.title}${a.detail ? ' — ' + a.detail : ''}`, fix: a.fix })),
       kind !== 'alert' ? sec('Fixed recently', r.history.filter((h) => now() - h.to < 7 * 86400000).slice(0, 15), (h) => `${h.title} (${when(h.from)} – ${when(h.to)})`) : null,
       ...(extra || []),
