@@ -393,7 +393,8 @@ function renderSpeed() {
   $('speedRun').disabled = !!sp.running;
   for (const b of $('speedRange').querySelectorAll('button')) b.setAttribute('aria-pressed', String(+b.dataset.days === speedDays));
   if (h.length < 2) { $('speedChart').innerHTML = h.length ? '<p class="note">One test so far: the chart starts with the second.</p>' : ''; return; }
-  const W = 640, H = 196, L = 44, R = 36, T = 24, B = 24, t0 = Date.now() - speedDays * 86400000, t1 = Date.now();
+  // the right-hand edge is the newest measurement (not now), and the range runs back from it
+  const t1 = h[h.length - 1].t, W = 640, H = 196, L = 44, R = 36, T = 24, B = 24, t0 = t1 - speedDays * 86400000;
   const maxV = Math.max(10, ...h.map((r) => Math.max(r.down, r.up)));
   const step = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000].find((s2) => maxV / s2 <= 5) || 5000, top = Math.ceil(maxV / step) * step;
   const maxP = Math.max(20, ...h.map((r) => r.ping || 0)), topP = Math.ceil(maxP / 10) * 10;
@@ -408,8 +409,7 @@ function renderSpeed() {
   });
   const line = (k, fy) => curve(smooth(k).map((p) => [x(p.t), fy(p.v)]), h.map((r) => r.t));
   // the newest test is old (tries failed since): each line carries on to now, dashed (not measured)
-  const lastT = h[h.length - 1].t, stale = Date.now() - lastT > Math.max(2, (sp.every || 60) * 1.5) * 60000;
-  const tail = (k, fy) => { if (!stale) return ''; const p = smooth(k).pop(); return `M${x(p.t).toFixed(1)},${fy(p.v).toFixed(1)}L${(W - R).toFixed(1)},${fy(p.v).toFixed(1)}`; };
+
   let grid = '';
   for (let v = 0; v <= top; v += step) grid += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
   for (let v = 0; v <= topP; v += topP / 2) grid += `<text x="${W - R + 6}" y="${yp(v) + 4}">${v}</text>`;
@@ -423,7 +423,7 @@ function renderSpeed() {
     + `<circle cx="${x(r.t).toFixed(1)}" cy="${y(r.down).toFixed(1)}" r="2.2" fill="var(--accent)" opacity=".45">${tip(r)}</circle>`).join('');
   $('speedChart').innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Internet speed over time">${grid}
     <text x="${L - 6}" y="10" text-anchor="end">Mbps</text><text x="${W - R + 6}" y="10">ms</text>
-    <path class="ping" d="${line('ping', yp)}"/><path class="up" d="${line('up', y)}"/><path class="down" d="${line('down', y)}"/>${stale ? `<path class="ping tail" d="${tail('ping', yp)}"/><path class="up tail" d="${tail('up', y)}"/><path class="down tail" d="${tail('down', y)}"/>` : ''}${dots}</svg>
+    <path class="ping" d="${line('ping', yp)}"/><path class="up" d="${line('up', y)}"/><path class="down" d="${line('down', y)}"/>${dots}</svg>
     <div class="legend"><span><i style="background:var(--accent)"></i>download</span><span><i style="background:var(--ok)"></i>upload</span><span><i style="background:var(--muted);height:2px"></i>ping (right scale)</span><span>${h.length} tests (lines are averaged, dots are single tests) · typical ↓ ${mbps(median(h.map((r) => r.down)))} ↑ ${mbps(median(h.map((r) => r.up)))}</span></div>`;
 }
 // A smooth path through points (monotone cubic: no bumps past the data); a break where tests stopped for over 6 hours.
