@@ -25,6 +25,9 @@ const PIHOLE_EVERY = 5 * 60000;
 // Self-repair: a device or app that stops answering gets one restart (at most once an hour each), then a re-check.
 // Fixed = it answers again; that goes under "Fixed recently" (and in the emails). Not fixed = the normal alert.
 const REPAIR_GAP = FAST ? 0 : 3600000;
+const BACKUP_MAX = 2 * 86400000;                  // Home Assistant's last good automatic backup older than this: alert
+const BACKUP_RETRY = FAST ? 0 : 86400000, BACKUP_WAIT = 2 * 3600000;   // start one at most once a day; give it 2 hours
+const CERT_DAYS = 14, CERT_EVERY = 3600000;          // certificates: warn 14 days before they run out; look hourly
 const PIHOLE_OFF_MAX = FAST ? 0 : 4 * 3600000;   // Pi-hole blocking switched off this long: turn it back on
 const DEV_WAIT = FAST ? 0 : 45000, APP_WAIT = FAST ? 0 : 20000;
 // This server's own apps: their page, to see they answer (a stuck app can still be "running"), and their Restart
@@ -312,6 +315,30 @@ async function piholeEnable(url, password) {
   finally { if (sid) await call('DELETE', '/api/auth', sid).catch(() => {}); }
 }
 
+// Home Assistant: one REST GET (null when it isn't there)
+async function haGet(url, token, p) {
+  const r = await fetch(url.replace(/\/+$/, '') + p, { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(20000) });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error('Home Assistant answered ' + r.status);
+  return r.json();
+}
+async function haCall(url, token, svc, data) {
+  const r = await fetch(url.replace(/\/+$/, '') + '/api/services/' + svc, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(data || {}), signal: AbortSignal.timeout(30000) });
+  if (!r.ok) throw new Error(`Home Assistant: ${svc} answered ${r.status}`);
+}
+// A site's certificate: when it runs out (ms)
+function certEnd(host) {
+  return new Promise((ok, no) => {
+    const sock = tls.connect({ host, port: 443, servername: host, rejectUnauthorized: false, timeout: 8000 }, () => {
+      const c = sock.getPeerCertificate(); sock.end();
+      c && c.valid_to ? ok(Date.parse(c.valid_to)) : no(new Error('no certificate'));
+    });
+    sock.on('timeout', () => sock.destroy(new Error('no answer')));
+    sock.on('error', no);
+  });
+}
+
 async function webCheck(url) {
   const t0 = Date.now();
   const r = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: 'manual' });
@@ -363,6 +390,11 @@ function adviceFor(f, devices) {
   if (id.startsWith('pvemem:')) return 'The node is nearly out of RAM: lower a VM\u2019s memory, enable ballooning, or stop something you don\u2019t need.';
   if (id.startsWith('pvebackup:')) return 'Proxmox \u2192 Datacenter \u2192 Backup \u2192 the job \u2192 Run now, and read the task log (usually the backup storage is full or unreachable).';
   if (id.startsWith('app:')) { const n = id.slice(4); return `It is running but stuck (Lickety Split pressed its Restart; that didn’t help or it was tried in the last hour): "sudo systemctl restart ${n}", then "journalctl -u ${n} -n 50".`; }
+  if (id === 'habackup') return 'Lickety Split starts a backup (once a day). If it keeps failing: Home Assistant → Settings → System → Backups shows why (usually the backup location is full or unreachable).';
+  if (id === 'wan') return 'The eero has lost the internet: check the modem (its lights), restart the modem, then the eero. The eero app shows the outage too.';
+  if (id.startsWith('eero:')) return 'Check the eero has power (its light). Unplug it for 10 seconds; if it stays off, the eero app shows which one and why.';
+  if (id.startsWith('cert:')) return 'Caddy renews the certificates by itself. On this server: "journalctl -u caddy -n 100 | grep -i acme" shows why renewal fails (usually the DNS provider key).';
+  if (id.startsWith('guestsync:')) return 'tree-show isn’t reaching the guest site: Treeinator → Settings → Guests shows the error. Check the site address and key there, and that tree-show is running.';
   if (id.startsWith('svc:')) { const n = id.slice(4); return `On this server: "sudo systemctl restart ${n}", then "journalctl -u ${n} -n 50" to see why it stopped.`; }
   if (id.startsWith('ringbatt:')) return 'Charge or swap the camera\u2019s battery (Ring app \u2192 the device \u2192 Device Health shows the level). A Stick Up Cam has a removable pack; the doorbell comes off its plate with the security screw.';
   if (id.startsWith('ring:')) return 'The camera is offline: check its battery (or power) and Wi-Fi in the Ring app \u2192 Device Health. Power-cycle it (hold the setup button) if the battery is fine.';
@@ -412,7 +444,8 @@ function duckOf(id) {
   return { lock: 'locks', garage: 'garage', auto: 'automations', ha: 'ha', pihole: 'pihole', piholeblk: 'pihole', piholegrav: 'pihole',
     piholeapi: 'pihole', upd: 'updates', piholeupd: 'updates', dev: 'devices', web: 'watch', disk: 'disk', disklow: 'disk',
     pve: 'proxmox', pvenode: 'proxmox', pveguest: 'proxmox', pvedisk: 'proxmox', pvezfs: 'proxmox', pvestore: 'proxmox', pvemem: 'proxmox', pvebackup: 'proxmox', pveupd: 'updates',
-    svc: 'server', aptupd: 'updates', ring: 'ring', ringbatt: 'ring', printer: 'printer', printertoner: 'printer', speed: 'speed' }[k] || k;
+    svc: 'server', aptupd: 'updates', ring: 'ring', ringbatt: 'ring', printer: 'printer', printertoner: 'printer', speed: 'speed',
+    app: 'server', habackup: 'ha', wan: 'speed', eero: 'devices', cert: 'watch', guestsync: 'watch' }[k] || k;
 }
 
 // ---------- the monitor ----------
@@ -424,7 +457,10 @@ function createMonitor(deps) {
   try { st = Object.assign(st, JSON.parse(fs.readFileSync(FILE, 'utf8'))); } catch (e) { /* first run */ }
   const save = () => fs.writeFile(FILE + '.tmp', JSON.stringify(st), (e) => { if (!e) fs.rename(FILE + '.tmp', FILE, () => {}); });
   let pihole = { at: 0, res: null, err: null }, running = false, fails = {};
-  st.repairs = st.repairs || [];        // [{ at, key, name, how, ok, why }] newest first
+  st.repairs = st.repairs || []; st.outages = st.outages || []; st.drops = st.drops || [];
+  const good = {};   // device key -> { at, uptime } at its last good answer (to tell a reboot from a missed answer)
+  const certs = {};   // host -> { at, end, err }
+  let wanId = null, wanLook = 0; const lastDetail = {};        // [{ at, key, name, how, ok, why }] newest first
   const lastTry = {};
   // one repair: do it, wait, check again. true = it answers again
   async function repair(key, name, how, act, verify, wait) {
@@ -480,6 +516,62 @@ function createMonitor(deps) {
         check('Home Assistant', false, e.message);
         add('ha', 'alert', 'Home Assistant', 'Home Assistant isn’t answering', e.name === 'TimeoutError' ? 'no answer' : e.message);
       }
+    }
+
+    // Home Assistant extras: its backups (a self-repair starts one) and internet drops (the eero's WAN status)
+    if (net.haUrl && net.haToken && haAnswer) {
+      try {
+        const b = await haGet(net.haUrl, net.haToken, '/api/states/sensor.backup_last_successful_automatic_backup');
+        const at = b && Date.parse(b.state);
+        if (at) {
+          // a backup Lickety Split started: done when a newer good one shows up; given up after 2 hours
+          const r = st.repairs.find((x) => x.key === 'habackup' && x.ok == null);
+          if (r && at > r.at) { r.ok = true; st.history.unshift({ title: 'Home Assistant backup was old: started one, and it finished', cat: 'Fixed by Lickety Split', from: r.at, to: now, auto: true }); deps.log && deps.log('Self-repair: Home Assistant backup finished'); }
+          else if (r && now - r.at > BACKUP_WAIT) { r.ok = false; r.why = 'no new backup after 2 hours'; }
+          if (now - at > BACKUP_MAX) {
+            const last = st.repairs.find((x) => x.key === 'habackup');
+            if (!last || (last.ok != null && now - last.at > BACKUP_RETRY)) {
+              const nr = { at: now, key: 'habackup', name: 'Home Assistant backup', how: 'started a backup', ok: null, why: '' };
+              try { await haCall(net.haUrl, net.haToken, 'backup/create_automatic'); } catch (e) { nr.ok = false; nr.why = e.message; }
+              st.repairs.unshift(nr); st.repairs = st.repairs.slice(0, 30);
+              deps.log && deps.log('Self-repair: Home Assistant backup: ' + (nr.ok === false ? 'couldn’t start one (' + nr.why + ')' : 'started one'));
+            }
+            add('habackup', 'alert', 'Home Assistant', `Home Assistant’s last good backup is ${mins(now - at)} old`, st.repairs[0] && st.repairs[0].key === 'habackup' && st.repairs[0].ok == null ? 'Lickety Split started a new one' : 'automatic backups aren’t finishing');
+          }
+          check('Home Assistant backup', now - at <= BACKUP_MAX, mins(now - at) + ' ago');
+        }
+      } catch (e) { /* the HA check above reports HA itself */ }
+      try {
+        if (!wanId || now - wanLook > 6 * 3600000) {   // find the WAN status sensor (eero) now and then
+          wanLook = now; const all = await haGet(net.haUrl, net.haToken, '/api/states');
+          const w = (all || []).find((x) => /^sensor\..*eero.*_wan_status$/.test(x.entity_id)) || (all || []).find((x) => /^sensor\..*_wan_status$/.test(x.entity_id));
+          wanId = w ? w.entity_id : null;
+        }
+        if (wanId) {
+          const since = new Date(now - 7 * 86400000).toISOString();
+          const h = await haGet(net.haUrl, net.haToken, `/api/history/period/${since}?filter_entity_id=${wanId}&minimal_response&no_attributes`);
+          const list = (h && h[0]) || [], out = [];
+          let cur = null;
+          for (const x of list) {     // a drop = from a "not connected" state to the next "connected" (HA losing the eero doesn't count)
+            const t = Date.parse(x.last_changed), down = !/^(connected|unavailable|unknown)$/i.test(x.state), up = /^connected$/i.test(x.state);
+            if (down && !cur) cur = { from: t, state: x.state }; else if (up && cur) { cur.to = t; out.push(cur); cur = null; }
+          }
+          if (cur) { cur.to = null; out.push(cur); }
+          const old = st.outages.filter((o) => o.from < now - 7 * 86400000 - 1);   // (keep older ones HA has forgotten, up to 60)
+          st.outages = out.concat(old.filter((o) => !out.some((n) => n.from === o.from))).sort((a, b) => b.from - a.from).slice(0, 60);
+          const ongoing = out.find((o) => o.to == null);
+          if (ongoing) add('wan', 'alert', 'Internet', 'The internet is down', `the eero says “${ongoing.state}” since ${new Date(ongoing.from).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`, ongoing.from);
+          const wk = st.outages.filter((o) => o.from > now - 7 * 86400000);
+          check('Internet connection', !ongoing, ongoing ? 'down' : `${wk.length} drop${wk.length === 1 ? '' : 's'} this week`);
+        }
+      } catch (e) { /* the HA check above reports HA itself */ }
+    }
+
+    // eero units: one that the network check saw in the last week but not now
+    const nr = deps.netResult && deps.netResult();
+    if (nr && nr.hosts) for (const h of nr.hosts) {
+      if (!/^eero/i.test(h.brand || '') || !h.ip) continue;
+      if (!h.online && h.lastSeen && now - h.lastSeen < 7 * 86400000) add('eero:' + (h.mac || h.ip), 'alert', 'Network', `An eero (${h.name && !/^eero$/i.test(h.name) ? h.name + ', ' : ''}${h.ip}) is off the network`, `last seen ${mins(now - h.lastSeen)} ago (network check, hourly)`, h.lastSeen);
     }
 
     // Pi-hole results
@@ -589,16 +681,28 @@ function createMonitor(deps) {
     } else if (sp && sp.last.length) { const l = sp.last[sp.last.length - 1]; check('Internet speed', true, `${l.down} down / ${l.up} up Mbps`); }
 
     // your devices + watched web addresses (down = 3 misses in a row)
-    const targets = deps.devices().map((d) => { const run = () => deps.probe(d).then((p) => { if (!p.online) throw new Error(p.detail || 'no answer'); });
+    const targets = deps.devices().map((d) => { const k = 'dev:' + d.id;
+      // a device that comes back after missed answers: did it restart (its uptime started again) or stay up (Wi-Fi, or slow)?
+      const run = () => { const t0 = Date.now(); return deps.probe(d).then((p) => { if (!p.online) throw new Error(p.detail || 'no answer');
+        const ms = Date.now() - t0, g = good[k], now2 = Date.now();
+        if (g && g.missed && p.uptime != null) {
+          const rebooted = g.uptime != null && p.uptime < g.uptime;   // its uptime went back: it restarted
+          st.drops.unshift({ at: g.missedAt, back: now2, key: k, name: d.name, kind: rebooted ? 'restarted' : 'stayed up', up: p.uptime, rssi: p.rssi });
+          st.drops = st.drops.slice(0, 60);
+          deps.log && deps.log(`${d.name} answers again: it ${rebooted ? 'restarted (up ' + Math.round(p.uptime / 60) + ' min)' : 'stayed up (Wi-Fi or slow answers)'}${p.rssi != null ? ', Wi-Fi ' + p.rssi + ' dBm' : ''}`);
+        }
+        good[k] = { at: now2, uptime: p.uptime };
+        lastDetail[k] = `answers in ${ms} ms${p.uptime != null ? ' · up ' + mins(p.uptime * 1000) : ''}${p.rssi != null ? ' · Wi-Fi ' + p.rssi + ' dBm' : ''}`; }); };
       return { key: 'dev:' + d.id, name: d.name, run,
         fix: deps.restartDev && !(deps.busy && deps.busy(d)) ? () => repair('dev:' + d.id, d.name, 'restarted it', () => deps.restartDev(d), run, DEV_WAIT) : null }; })
-      .concat((c.watch || []).map((w) => ({ key: 'web:' + w.url, name: w.name, run: () => webCheck(w.url) })));
+      .concat((c.watch || []).map((w) => ({ key: 'web:' + w.url, name: w.name, run: () => webCheck(w.url), extra: () => siteExtras(w) })));
     await Promise.all(targets.map(async (t) => {
-      try { await t.run(); fails[t.key] = 0; check(t.name, true, ''); }
+      try { await t.run(); fails[t.key] = 0; check(t.name, true, lastDetail[t.key] || ''); if (t.extra) await t.extra().catch(() => {}); }
       catch (e) {
         // missed: look again in 15 s (one blip restarts nothing); still not answering: restart it and look again
-        if (t.fix && await sleep(FAST ? 0 : 15000).then(t.run).then(() => true, () => false)) { fails[t.key] = 0; check(t.name, true, ''); return; }
-        if (t.fix && await t.fix()) { fails[t.key] = 0; check(t.name, true, 'restarted by Lickety Split'); return; }
+        if (good[t.key] && !good[t.key].missed) Object.assign(good[t.key], { missed: true, missedAt: Date.now() });
+        if (t.fix && await sleep(FAST ? 0 : 15000).then(t.run).then(() => true, () => false)) { fails[t.key] = 0; check(t.name, true, (lastDetail[t.key] || '') + ' · missed one answer'); return; }
+        if (t.fix && await t.fix()) { fails[t.key] = 0; if (good[t.key]) good[t.key].missed = false; check(t.name, true, 'restarted by Lickety Split'); return; }
         fails[t.key] = (fails[t.key] || 0) + 1;
         check(t.name, false, e.message);
         if (fails[t.key] >= (c.every >= 3 ? 1 : 3)) add(t.key, 'alert', 'Devices', `${t.name} isn’t answering`, e.name === 'TimeoutError' ? 'no answer' : e.message);
@@ -618,6 +722,26 @@ function createMonitor(deps) {
     const pg = deps.pingSummary && deps.pingSummary();
     if (pg && pg.last && !pg.last.ok && now - pg.last.at < 10 * 60000) add('ping', 'notice', 'Server', 'Health ping failing', pg.last.status, 0, 0);
     return found;
+  }
+
+  // A watched https address: its certificate (Caddy renews them; this catches a renewal that keeps failing), and if it
+  // is the tree's guest page (it has /api/queue), whether the tree is checking in with it
+  async function siteExtras(w) {
+    const u = new URL(w.url), now = Date.now();
+    if (u.protocol === 'https:') {
+      const host = u.hostname, c = certs[host];
+      if (!c || now - c.at > CERT_EVERY) { try { certs[host] = { at: now, end: await certEnd(host), err: null }; } catch (e) { certs[host] = { at: now, end: c && c.end, err: e.message }; } }
+      const x = certs[host];
+      if (x && x.end) {
+        const days = Math.floor((x.end - now) / 86400000);
+        if (days < CERT_DAYS) add('cert:' + host, 'alert', 'Websites', days < 0 ? `${host}: its certificate has run out` : `${host}: its certificate runs out in ${days} day${days === 1 ? '' : 's'}`, 'the automatic renewal isn’t working', 0, 0);
+      }
+    }
+    try {
+      const r = await fetch(u.origin + '/api/queue', { signal: AbortSignal.timeout(8000) });
+      const j = r.ok && /json/.test(r.headers.get('content-type') || '') ? await r.json() : null;
+      if (j && 'open' in j && 'items' in j && j.why === 'offline') add('guestsync:' + u.host, 'alert', 'Websites', `${w.name}: the tree isn’t checking in`, 'guests see “The tree is offline”');
+    } catch (e) { /* not the guest page */ }
   }
 
   // keep the list of problems: when each started, whether it's confirmed (lasted its grace time), history of fixed ones
@@ -656,7 +780,7 @@ function createMonitor(deps) {
     const now = Date.now(), al = confirmed(), pending = Object.values(st.active).filter((a) => a.sev === 'alert' && now - a.first < a.grace);
     return { at: st.at || 0, enabled: cfg().enabled, every: +cfg().every || 5, alerts: al.sort((a, b) => a.first - b.first), pending, notices: notices().sort((a, b) => a.cat.localeCompare(b.cat) || a.title.localeCompare(b.title)),
       perDuck: Object.values(st.active).filter((a) => a.sev === 'alert' || a.cat === 'Updates').reduce((m, a) => { const k = duckOf(a.id); m[k] = (m[k] || 0) + 1; return m; }, {}),
-      checks: st.checks, history: st.history.slice(0, 20), repairs: st.repairs.slice(0, 10), emails: st.emails.slice(0, 15), ignored: (cfg().ignore || []).map((id) => ({ id, title: (st.titles || {})[id] || id })) };
+      checks: st.checks, history: st.history.slice(0, 20), repairs: st.repairs.slice(0, 10), outages: st.outages.slice(0, 20), drops: st.drops.slice(0, 20), emails: st.emails.slice(0, 15), ignored: (cfg().ignore || []).map((id) => ({ id, title: (st.titles || {})[id] || id })) };
   }
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   function emailBody(kind, extra) {
@@ -713,6 +837,8 @@ function createMonitor(deps) {
       const d = r.dnsStats;
       if (d) out.push({ title: 'DNS (last 24 h)', items: [`${d.total.toLocaleString()} queries, ${d.blocked.toLocaleString()} blocked (${(+d.percent).toFixed(1)}%)`] });
     }
+    const wk = st.outages.filter((o) => o.from > now - 7 * 86400000);
+    if (wanId) out.push({ title: 'Internet drops this week', items: wk.length ? wk.map((o) => `${new Date(o.from).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}: ${o.to ? mins(o.to - o.from) : 'still down'}`) : ['None.'] });
     const pg = deps.pingSummary && deps.pingSummary();
     if (pg && pg.ok + pg.fail) out.push({ title: 'Health ping (24 h)', items: [`${pg.ok} of ${pg.ok + pg.fail} OK`] });
     return out;

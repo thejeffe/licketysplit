@@ -209,11 +209,12 @@ async function probe(dev) {
     if (fw && fw.probe === 'airplay') {
       const j = await getJson(`http://${dev.host}/api/system/info`);
       const i = j.info || {};
-      Object.assign(out, { online: true, version: i.firmware_version || null, detail: i.device_name || '' });
+      Object.assign(out, { online: true, version: i.firmware_version || null, detail: i.device_name || '', uptime: j.uptime_s != null ? +j.uptime_s : (i.uptime_s != null ? +i.uptime_s : null) });
     } else {
       const i = await getJson(`http://${dev.host}/json/info`);
       const m = /matrixinator-(.+)$/.exec(i.ver || '');
       const ver = m ? m[1] : i.ver ? i.ver + (i.dither && i.dither.fw ? '-' + i.dither.fw : '') : null;
+      out.uptime = i.uptime != null ? +i.uptime : null; out.rssi = i.wifi && i.wifi.rssi != null ? i.wifi.rssi : null;
       Object.assign(out, { online: true, version: ver, detail: [i.name, i.release || i.arch, i.leds ? i.leds.count + ' LEDs' : ''].filter(Boolean).join(' · ') });
       if (i.release) out.release = i.release;
     }
