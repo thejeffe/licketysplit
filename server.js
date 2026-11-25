@@ -674,8 +674,23 @@ const server = http.createServer(async (req, res) => {
         if (clash) throw new Error(`${h} is already ${clash.device || clash.ip}`);
         o[mac] = { host: h };
       } else throw new Error('Unknown action.');
+      // a name that was added to Pi-hole by hand (not one Lickety Split keeps): renaming or removing it here takes
+      // that record out of Pi-hole; Lickety Split then keeps the new name (or none) like its own
+      const h = netResult && b.action !== 'allow' && netResult.hosts.find((x) => x.mac === mac && x.ip);
+      const ourHosts = new Set((conf.net.piholeManaged || []).map((x) => x.host));
+      const own = h ? (h.dnsAll || [h.dns]).filter((x) => x && !ourHosts.has(x)) : [];
+      if (own.length) {
+        if (!conf.net.piholeUrl || !conf.net.piholePassword) throw new Error('Set up Pi-hole in Settings first.');
+        const drop = await netscan.piholeDrop(conf.net.piholeUrl, conf.net.piholePassword, (line) => {
+          const [ip, ...names] = line.trim().split(/\s+/); return ip === h.ip && names.length && names.every((n) => own.includes(n.toLowerCase()));
+        });
+        log(`Pi-hole names: ${h.name || mac}: ${b.action === 'rename' ? 'renamed' : 'removed'} the hand-made record${drop.length > 1 ? 's' : ''} ${drop.join(', ') || '(none found)'}`);
+        h.dnsAll = (h.dnsAll || []).filter((x) => !own.includes(x)); if (own.includes(h.dns)) h.dns = h.dnsAll[0] || '';
+        if (netResult.piRecords) netResult.piRecords = netResult.piRecords.filter((l) => !drop.includes(l));
+      }
       saveConf();
       const sync = netResult ? await syncNames(netResult, 'page') : null;
+      if (own.length) await useDnsNames(netResult).catch(() => {});
       if (sync && netResult) netResult.piSync = sync;
       return send(res, 200, { settings: publicNet(), sync, names: dnsNames() });
     }

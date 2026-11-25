@@ -424,6 +424,20 @@ async function scan(opts) {
     piholeInfo(opts.piholeUrl, opts.piholePassword).catch((e) => ({ error: e.name === 'TimeoutError' ? 'Pi-hole didn\u2019t answer' : e.message })),
   ]);
   sources.pihole = pi.skipped ? 'not set up' : pi.error || 'ok';
+  // Pi-hole's device list remembers names a device once had; keep only the ones that still lead to it
+  // (a record in Pi-hole, its reverse name, or a name that looks up to that address now)
+  if (pi.byIp) {
+    const r = new dns.promises.Resolver({ timeout: 2000, tries: 1 }); if (opts.dns) r.setServers([opts.dns]);
+    const checks = [];
+    for (const [ip, e] of Object.entries(pi.byIp)) for (const n of e.names || []) {
+      if (e.records.includes(n) || rdns.names[ip] === n || !n.includes('.')) continue;
+      checks.push({ ip, e, n });
+    }
+    await pool(checks, 16, async (c) => {
+      let a = null; try { a = await r.resolve4(c.n); } catch (er) { if (er.code !== 'ENOTFOUND' && er.code !== 'ENODATA') return; }
+      if (!a || !a.includes(c.ip)) c.e.names = c.e.names.filter((x) => x !== c.n);
+    });
+  }
   const dnsStats = pi.stats || null;
   sources.mdns = mdns.error || 'ok';
   sources.dns = rdns.error || 'ok';
@@ -638,6 +652,28 @@ function planNames(res, opts) {
 }
 // plan(records) gets Pi-hole's records as they are right now (read in the same session) and returns
 // { want, userRemoved, managed }; only the difference between managed and want is sent.
+// Remove some local DNS records from Pi-hole (exact "IP name ..." lines), e.g. a name added by hand that
+// Lickety Split is now asked to rename or remove. Returns the lines it removed.
+async function piholeDrop(url, password, pick) {
+  const base = url.replace(/\/+$/, '');
+  const call = async (method, p, sid, body) => {
+    const r = await fetch(base + p, { method, signal: AbortSignal.timeout(15000),
+      headers: Object.assign({ 'Content-Type': 'application/json' }, sid ? { 'X-FTL-SID': sid } : {}), body: body ? JSON.stringify(body) : undefined });
+    if (r.status === 401) throw new Error('Pi-hole refused the password');
+    if (!r.ok && r.status !== 404) { const j = await r.json().catch(() => ({})); throw new Error((j.error && (j.error.hint || j.error.message)) || 'HTTP ' + r.status); }
+    return r;
+  };
+  const a = await (await call('POST', '/api/auth', null, { password })).json();
+  const sid = a.session && a.session.sid, removed = [];
+  try {
+    const cur = await (await call('GET', '/api/config/dns/hosts', sid)).json();
+    for (const line of ((((cur || {}).config || {}).dns || {}).hosts || []).filter(pick)) {
+      await call('DELETE', '/api/config/dns/hosts/' + encodeURIComponent(line), sid); removed.push(line);
+    }
+  } finally { if (sid) await call('DELETE', '/api/auth', sid).catch(() => {}); }
+  return removed;
+}
+
 async function piholeSync(url, password, plan) {
   const base = url.replace(/\/+$/, '');
   const call = async (method, p, sid, body) => {
@@ -769,4 +805,4 @@ function merge(prev, res) {
   return { at: res.at, took: res.took, subnet: res.subnet, sources: res.sources, hosts, dnsStats: res.dnsStats || null, piRecords: res.piRecords || null };
 }
 
-module.exports = { scan, merge, parseCidr, localNets, planNames, piholeSync, piholeClientQueries, _test: { unescapeAvahi, mdnsFacts, HA_TEMPLATE } };
+module.exports = { piholeDrop, scan, merge, parseCidr, localNets, planNames, piholeSync, piholeClientQueries, _test: { unescapeAvahi, mdnsFacts, HA_TEMPLATE } };
