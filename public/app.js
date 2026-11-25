@@ -379,7 +379,7 @@ $('stBody').addEventListener('click', async (ev) => {
 setInterval(() => { if (!document.hidden) loadStatus(); }, 60000);
 
 // ---------- internet speed: history chart ----------
-let SPEED = null, speedDays = 7;
+let SPEED = null, speedDays = 1;   // the chart opens on the last 24 hours
 const mbps = (v) => v >= 100 ? Math.round(v) : v.toFixed(1);
 function renderSpeed() {
   const sp = SPEED; if (!sp) return;
