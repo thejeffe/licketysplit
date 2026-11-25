@@ -386,7 +386,8 @@ function renderSpeed() {
   const on = sp.every > 0 || (sp.history && sp.history.length);
   $('speedBox').hidden = !on; if (!on) return;
   const h = sp.history || [], l = sp.last;
-  $('speedNote').innerHTML = (l ? `<b>↓ ${mbps(l.down)} Mbps</b> · <b>↑ ${mbps(l.up)} Mbps</b> · ${l.ping} ms (±${l.jitter}) · ${ago(l.t)}` : 'No test yet.')
+  $('speedNote').innerHTML = (l ? `<b>↓ ${mbps(l.down)} Mbps</b> · <b>↑ ${mbps(l.up)} Mbps</b> · ${l.ping} ms (±${l.jitter})${l.loss ? ` · ${l.loss}% lost` : ''} · ${ago(l.t)}`
+      + (l.engine === 'ookla' ? ` · <span title="Speedtest by Ookla">${esc(l.server || 'Speedtest')}</span>${l.url ? ` · <a href="${esc(l.url)}" target="_blank" rel="noopener">result</a>` : ''}` : ' · built-in test') : 'No test yet.')
     + (sp.every ? ` · every ${sp.every >= 60 ? (sp.every / 60) + ' h' : sp.every + ' min'}` : ' · automatic tests are off (⚙ Settings → General)')
     + (sp.running ? ' · <b>testing now…</b>' : '') + (sp.error ? ` · <span class="off">last try failed: ${esc(sp.error.msg)}</span>` : '');
   $('speedRun').disabled = !!sp.running;

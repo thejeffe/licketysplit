@@ -115,8 +115,44 @@ async function upload(pingMs) {
   return ms > 0 ? total * 8 / (ms / 1000) / 1e6 : 0;
 }
 
-async function runTest() {
-  const out = { t: Date.now() };
+// ---------- the official Speedtest by Ookla CLI, when it's installed ----------
+// Lickety Split uses Ookla's own program (the speedtest.net engine) when it finds it: <install dir>/bin/speedtest, or
+// LS_SPEEDTEST. It isn't in the repository (Ookla's license doesn't allow passing it on): download it from
+// https://www.speedtest.net/apps/cli and put the `speedtest` file there. Its license is accepted on each run
+// (--accept-license --accept-gdpr). If it's missing or a run fails, the built-in Cloudflare test runs instead.
+const { execFile } = require('child_process');
+const OOKLA = process.env.LS_SPEEDTEST || require('path').join(__dirname, 'bin', 'speedtest');
+function ooklaReady() { try { require('fs').accessSync(OOKLA, require('fs').constants.X_OK); return true; } catch (e) { return false; } }
+function ookla(home) {
+  return new Promise((ok, no) => {
+    execFile(OOKLA, ['--accept-license', '--accept-gdpr', '-f', 'json', '-p', 'no'],
+      { timeout: 120000, maxBuffer: 1 << 20, env: Object.assign({}, process.env, home ? { HOME: home } : {}) }, (err, stdout, stderr) => {
+        let j = null;
+        for (const line of String(stdout || '').split('\n')) { try { const x = JSON.parse(line); if (x && x.type === 'result') j = x; } catch (e) { /* not JSON */ } }
+        if (!j) {
+          const why = (String(stderr || '').match(/\[error\].*|error.*$/im) || [])[0] || (err && err.message) || 'no result';
+          return no(new Error('Speedtest (Ookla): ' + String(why).replace(/\s+/g, ' ').slice(0, 160)));
+        }
+        const s = j.server || {};
+        ok({
+          ping: Math.round((j.ping || {}).latency * 10) / 10, jitter: Math.round((j.ping || {}).jitter * 10) / 10,
+          down: Math.round((j.download || {}).bandwidth * 8 / 1e5) / 10, up: Math.round((j.upload || {}).bandwidth * 8 / 1e5) / 10,
+          loss: j.packetLoss != null ? Math.round(j.packetLoss * 10) / 10 : null,
+          engine: 'ookla', server: [s.name, s.location].filter(Boolean).join(' · ').slice(0, 80), isp: String(j.isp || '').slice(0, 60),
+          url: j.result && /^https:\/\/www\.speedtest\.net\//.test(j.result.url || '') ? j.result.url : null,
+        });
+      });
+  });
+}
+
+// Ookla's program first (when it's there), else the built-in test against Cloudflare.
+async function runTest(opts) {
+  const t = Date.now();
+  if (ooklaReady()) {
+    try { const r = await ookla(opts && opts.home); return Object.assign({ t }, r, { took: Date.now() - t }); }
+    catch (e) { if (opts && opts.log) opts.log(e.message + ' (using the built-in test this time)'); }
+  }
+  const out = { t: Date.now(), engine: 'cloudflare' };
   const l = await latency();
   out.ping = l.ping; out.jitter = l.jitter;
   out.down = Math.round(await download() * 10) / 10;
@@ -125,4 +161,4 @@ async function runTest() {
   return out;
 }
 
-module.exports = { runTest, download };
+module.exports = { runTest, download, ooklaReady };
