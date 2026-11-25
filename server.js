@@ -266,6 +266,18 @@ function publicNet() {
     piholeSkipped: Object.entries(n.piholeOverrides || {}).filter(([, o]) => o.skip).map(([mac]) => mac),
     autoSubnet: (netscan.localNets()[0] || {}).cidr || '' };
 }
+// Devices added by address get their DNS name once the network check knows one, and only if this server resolves
+// that name to the same address (so updates and checks keep reaching the device)
+async function useDnsNames(result) {
+  const byIp = {}; for (const h of (result && result.hosts) || []) if (h.ip && h.dns) byIp[h.ip] = h.dns;
+  let changed = false;
+  for (const d of conf.devices) {
+    const name = require('net').isIP(d.host) && byIp[d.host]; if (!name) continue;
+    try { const r = await require('dns').promises.lookup(name, { family: 4 }); if (r.address !== d.host) continue; } catch (e) { continue; }
+    log(`Device ${d.name}: ${d.host} -> ${name} (its DNS name)`); d.host = name; changed = true;
+  }
+  if (changed) saveConf();
+}
 function scanNetwork() {
   if (netRun) return netRun;
   netRun = netscan.scan({ subnet: conf.net.subnet, dns: conf.net.dns, haUrl: conf.net.haUrl, haToken: conf.net.haToken,
@@ -273,7 +285,7 @@ function scanNetwork() {
     managedHosts: (conf.net.piholeManaged || []).map((m) => m && m.host).filter(Boolean) })
     .then((r) => {
       netResult = netscan.merge(netResult, r); netError = null;
-      return syncNames(netResult).then((sync) => { if (sync) netResult.piSync = sync; return r; });
+      return syncNames(netResult).then((sync) => { if (sync) netResult.piSync = sync; return useDnsNames(netResult).catch(() => {}); }).then(() => r);
     })
     .then((r) => {
       fs.writeFileSync(NET_FILE + '.tmp', JSON.stringify(netResult)); fs.renameSync(NET_FILE + '.tmp', NET_FILE);
@@ -669,7 +681,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/devices' && req.method === 'POST') {
       if (conf.devices.length >= 50) throw new Error('That’s a lot of devices. Remove some first.');
       const d = Object.assign({ id: 'd' + crypto.randomBytes(4).toString('hex') }, cleanDevice(await readBody(req)));
-      conf.devices.push(d); saveConf(); return send(res, 200, d);
+      conf.devices.push(d); saveConf(); await useDnsNames(netResult).catch(() => {}); return send(res, 200, d);   // (an address gets its DNS name when one is known)
     }
     let m = p.match(/^\/api\/devices\/([\w-]{1,40})(\/probe|\/ota|\/restart)?$/);
     if (m) {
@@ -715,6 +727,7 @@ const server = http.createServer(async (req, res) => {
 
 loadConf();
 fs.mkdirSync(FW_DIR, { recursive: true });
+setTimeout(() => useDnsNames(netResult).catch(() => {}), 5000);   // devices added by address: their DNS name, if the last check knows it
 server.listen(CFG.port, CFG.bind, () => log(`Lickety Split on http://${CFG.bind}:${CFG.port} · data ${CFG.dataDir} · GitHub owner ${conf.owner || '(not set)'}`));
 setTimeout(() => refreshAll(), 5000);
 setInterval(() => refreshAll(), 6 * 3600 * 1000);

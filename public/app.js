@@ -376,22 +376,26 @@ function renderStatus() {
   if (al.length) setTimeout(fixDuckOnStatus, 0);            // the banner's fixing duck shows only while something needs fixing
   const bsub = document.querySelector('.banner .title span'); if (bsub) bsub.textContent = al.length ? `The duck is fixing ${al.length} thing${al.length > 1 ? 's' : ''} (see Status)` : 'Watches the house, maps the network, keeps the firmware fresh';
   $('statusCount').className = 'n' + (al.length ? ' off' : '');
-  $('stNote').textContent = (ST.at ? `Checked ${ago(ST.at)} (every ${ST.every > 1 ? ST.every + ' minutes' : 'minute'}).` : 'The first check runs a minute after Lickety Split starts.')
-    + (ST.settings.enabled ? ` Emails go to ${ST.settings.to || '(no address set)'}.` : ' Email is off: turn it on in ⚙ Settings.');
+  $('stNote').textContent = (ST.at ? `Checked ${ago(ST.at)} · every ${ST.every > 1 ? ST.every + ' min' : 'minute'}` : 'The first check runs a minute after Lickety Split starts')
+    + (ST.settings.enabled ? ` · emails to ${ST.settings.to || '(no address set)'}` : ' · email is off (⚙ Settings)');
   const row = (a, cls) => `<div class="row ${cls}"><div><b>${esc(a.title)}</b><small>${esc([a.cat, a.detail, a.first && cls === 'al' ? 'since ' + since(a.first) : ''].filter(Boolean).join(' · '))}</small>${a.fix || a.link ? `<div class="upd"><b>How to fix:</b> ${esc(a.fix || '')}${a.link ? ` <a class="fixlink" href="${esc(a.link.href)}"${/^#/.test(a.link.href) ? '' : ' target="_blank" rel="noopener"'}>${esc(a.link.label)} \u2197</a>` : ''}</div>` : ''}</div>${cls === 'al' ? `<div class="acts-r"><button type="button" class="ib" data-ignore="${esc(a.id)}" title="Ignore: Don\u2019t report this again (undo below)" aria-label="Ignore"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 6.1A10 10 0 0 1 22 12a14 14 0 0 1-3 3.6M6.6 6.6A14 14 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 4.4-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button></div>` : ''}</div>`;
   const byCat = {};
   for (const n of nt) (byCat[n.cat] = byCat[n.cat] || []).push(n);
   const checks = Object.entries(ST.checks || {}).sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([k, c]) => `<div title="${esc(c.detail)}"><span class="dot${c.ok ? '' : ' bad'}"></span>${esc(k)} <small>${esc(c.detail)}</small></div>`).join('');
-  $('stBody').innerHTML = `${al.length ? `<div class="allgood"><canvas class="fixduck" id="stFix" width="190" height="80" aria-label="The duck at work: something needs fixing"></canvas><div class="big bad">${al.length} thing${al.length > 1 ? 's' : ''} need${al.length > 1 ? '' : 's'} attention</div></div>` : `<div class="allgood"><svg class="okmark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7 12.5l3.2 3.2L17 9"/></svg><div><div class="big good">All good</div><div class="note" style="margin:0">Everything is working.</div></div></div>`}
+    .map(([k, c]) => `<span class="chip${c.ok ? '' : ' bad'}" title="${esc(c.detail)}"><span class="dot${c.ok ? '' : ' bad'}"></span>${esc(k)}${c.ok ? '' : ` <small>${esc(c.detail)}</small>`}</span>`).join('');
+  const nChecks = Object.keys(ST.checks || {}).length, okChecks = Object.values(ST.checks || {}).filter((c) => c.ok).length;
+  // folded sections keep their open/closed state between refreshes
+  const was = {}; document.querySelectorAll('#stBody details[data-f]').forEach((d) => { was[d.dataset.f] = d.open; });
+  const fold = (id, title, n, inner) => `<details class="fold st-sec" data-f="${id}"${was[id] ? ' open' : ''}><summary>${title}${n != null ? ` <span class="n">${n}</span>` : ''}</summary>${inner}</details>`;
+  $('stBody').innerHTML = `${al.length ? `<div class="allgood"><canvas class="fixduck" id="stFix" width="190" height="80" aria-label="The duck at work: something needs fixing"></canvas><div class="big bad">${al.length} thing${al.length > 1 ? 's' : ''} need${al.length > 1 ? '' : 's'} attention</div></div>` : `<div class="okline"><svg class="okmark sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7 12.5l3.2 3.2L17 9"/></svg><b>All good</b><span class="muted">${okChecks} of ${nChecks} checks OK</span></div>`}
     ${al.length ? `<div class="list st-sec">${al.map((a) => row(a, 'al')).join('')}</div>` : ''}
     ${(ST.pending || []).length ? `<p class="note">Watching: ${ST.pending.map((a) => esc(a.title)).join(', ')} (counts if it\u2019s still wrong at the next check)</p>` : ''}
     ${nt.length ? `<div class="st-sec"><h3>Updates to install</h3><div class="list">${Object.entries(byCat).map(([c, l]) => l.map((a) => row(a, 'nt')).join('')).join('')}</div></div>` : ''}
-    <div class="st-sec"><h3>Checks</h3><div class="checks">${checks || '<span class="muted">No checks yet.</span>'}</div></div>
-    ${(ST.history || []).length ? `<div class="st-sec"><h3>Fixed recently</h3><ul class="mails">${ST.history.slice(0, 8).map((h) => `<li>${esc(h.title)} <span class="muted">· ${since(h.from)} \u2013 ${since(h.to)}</span></li>`).join('')}</ul></div>` : ''}
-    ${(ST.ignored || []).length ? `<div class="st-sec"><h3>Ignored</h3><ul class="mails">${ST.ignored.map((x) => `<li>${esc(x.title)} <button type="button" class="small link" data-unignore="${esc(x.id)}">Watch again</button></li>`).join('')}</ul></div>` : ''}
-    <div class="st-sec"><h3>Emails</h3><ul class="mails">${(ST.emails || []).slice(0, 8).map((m) => `<li>${since(m.at)} · ${esc(m.subject)}${m.ok ? '' : ` <span class="off">failed: ${esc(m.error)}</span>`}</li>`).join('') || '<li class="muted">None sent yet.</li>'}</ul>
-    <div class="acts-r" style="justify-content:flex-start;margin-top:8px"><button type="button" class="small" id="stTest">Send a test email</button><button type="button" class="small" id="stSend">Email this report now</button></div><p class="msg boxmsg ${mailMsg.kind}" id="stMailMsg" role="status">${mailMsg.at && Date.now() - mailMsg.at < 60000 ? esc(mailMsg.text) : ''}</p></div>`;
+    <div class="chips">${checks || '<span class="muted">No checks yet.</span>'}</div>
+    ${(ST.history || []).length ? fold('fixed', 'Fixed recently', ST.history.length, `<ul class="mails">${ST.history.slice(0, 8).map((h) => `<li>${esc(h.title)} <span class="muted">· ${since(h.from)} \u2013 ${since(h.to)}</span></li>`).join('')}</ul>`) : ''}
+    ${(ST.ignored || []).length ? fold('ignored', 'Ignored', ST.ignored.length, `<ul class="mails">${ST.ignored.map((x) => `<li>${esc(x.title)} <button type="button" class="small link" data-unignore="${esc(x.id)}">Watch again</button></li>`).join('')}</ul>`) : ''}
+    ${fold('emails', `Emails${(ST.emails || []).length ? ' · last ' + since(ST.emails[0].at) : ''}`, null, `<ul class="mails">${(ST.emails || []).slice(0, 8).map((m) => `<li>${since(m.at)} · ${esc(m.subject)}${m.ok ? '' : ` <span class="off">failed: ${esc(m.error)}</span>`}</li>`).join('') || '<li class="muted">None sent yet.</li>'}</ul>
+    <div class="acts-r" style="justify-content:flex-start;margin-top:8px"><button type="button" class="small" id="stTest">Send a test email</button><button type="button" class="small" id="stSend">Email this report now</button></div><p class="msg boxmsg ${mailMsg.kind}" id="stMailMsg" role="status">${mailMsg.at && Date.now() - mailMsg.at < 60000 ? esc(mailMsg.text) : ''}</p>`)}`;
 }
 async function loadStatus() { loadSpeed(); return loadStatus2(); }
 async function loadStatus2() { try { ST = await api('GET', 'api/status'); renderStatus(); } catch (e) { $('stNote').textContent = 'Couldn\u2019t load the status: ' + e.message; } }
@@ -467,7 +471,7 @@ function renderSpeed() {
   $('speedChart').innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Internet speed over time">${grid}
     <text x="${L - 6}" y="10" text-anchor="end">Mbps</text><text x="${W - R + 6}" y="10">ms</text>
     <path class="ping" d="${line('ping', yp)}"/><path class="up" d="${line('up', y)}"/><path class="down" d="${line('down', y)}"/>${dots}</svg>
-    <div class="legend"><span><i style="background:var(--accent)"></i>download</span><span><i style="background:var(--ok)"></i>upload</span><span><i style="background:var(--muted);height:2px"></i>ping (right scale)</span><span>${h.length} tests (lines are averaged, dots are single tests) · typical ↓ ${mbps(median(h.map((r) => r.down)))} ↑ ${mbps(median(h.map((r) => r.up)))}</span></div>`;
+    <div class="legend"><span><i style="background:var(--accent)"></i>download</span><span><i style="background:var(--ok)"></i>upload</span><span><i style="background:var(--muted);height:2px"></i>ping</span><span title="Lines are averaged; dots are single tests">${h.length} tests · typical ↓ ${mbps(median(h.map((r) => r.down)))} ↑ ${mbps(median(h.map((r) => r.up)))}</span></div>`;
 }
 // A smooth path through points (monotone cubic: no bumps past the data); a break where tests stopped for over 6 hours.
 function curve(pts, ts) {

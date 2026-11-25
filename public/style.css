@@ -335,3 +335,25 @@ dialog[open]{margin:max(12px, env(safe-area-inset-top, 0px)) auto auto}
 .ib.sm svg{width:14px;height:14px}
 .ib.spin svg{animation:ibspin 1s linear infinite}
 @keyframes ibspin{to{transform:rotate(360deg)}}
+
+/* Status, compact: one line for all good, checks as chips, folded sections */
+.okline{display:flex;align-items:center;gap:8px;margin:2px 0 8px}
+.okline b{color:var(--ok);font:italic 800 20px/1 var(--display);text-transform:uppercase;letter-spacing:.02em}
+.okmark.sm{width:24px;height:24px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;background:var(--row);border:1px solid var(--rule);font-size:12.5px;white-space:nowrap;max-width:100%}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
+.chip.bad{border-color:var(--err)}.chip .dot.bad{background:var(--err)}
+.chip small{color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+#stBody .fold>summary .n{font:500 12px var(--body);color:var(--muted)}
+#stBody .st-sec{margin-top:6px}
+.legend{font-size:12px;gap:4px 12px}
+/* tabs: every name on the same line and height, selected or not */
+.tabs{align-items:center}
+.tabs [role="tab"]{display:inline-flex;align-items:baseline;gap:4px;line-height:1;height:40px;padding-top:0;padding-bottom:0;box-sizing:border-box;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tabs [role="tab"] .n:empty{display:none}
+.tabs [role="tab"]{align-items:center;height:36px}
+.legend{display:flex;flex-wrap:wrap;align-items:center}
+.legend>span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.legend>span i{display:inline-block;width:14px;height:3px;border-radius:2px;flex:none}
+.legend>span:last-child{white-space:normal}
