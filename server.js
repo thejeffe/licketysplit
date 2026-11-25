@@ -433,6 +433,12 @@ function cleanPing(b) {
 const SPEED_FILE = path.join(CFG.dataDir, 'speed.json'), SPEED_KEEP = 60 * 86400000;
 let speedLog = [], speedRun = null, speedError = null;
 try { speedLog = JSON.parse(fs.readFileSync(SPEED_FILE, 'utf8')); } catch (e) { /* none yet */ }
+// Only Speedtest by Ookla results count: the old built-in test's results (no engine, or 'cloudflare') read low and are dropped
+if (speedLog.some((r) => r.engine !== 'ookla')) {
+  const n = speedLog.length; speedLog = speedLog.filter((r) => r.engine === 'ookla');
+  try { fs.writeFileSync(SPEED_FILE + '.tmp', JSON.stringify(speedLog)); fs.renameSync(SPEED_FILE + '.tmp', SPEED_FILE); } catch (e) { /* kept in memory anyway */ }
+  console.log(`Speed history: dropped ${n - speedLog.length} results from the old built-in test, kept ${speedLog.length} from Speedtest`);
+}
 function runSpeed() {
   if (speedRun) return speedRun;
   speedRun = speedtest.runTest({ home: CFG.dataDir }).then((r) => {   // (Ookla's program keeps its license note in HOME)
