@@ -260,7 +260,7 @@ let netResult = null, netRun = null, netError = null;
 try { netResult = JSON.parse(fs.readFileSync(NET_FILE, 'utf8')); } catch (e) { /* none yet */ }
 function publicNet() {
   const n = conf.net;
-  return { enabled: n.enabled, subnet: n.subnet, dns: n.dns, haUrl: n.haUrl, haTokenSet: !!n.haToken,
+  return { enabled: n.enabled, subnet: n.subnet, dns: n.dns, haUrl: n.haUrl, haLinkUrl: n.haLinkUrl || '', haTokenSet: !!n.haToken,
     piholeUrl: n.piholeUrl, piholePasswordSet: !!n.piholePassword, piholeNames: n.piholeNames, piholeSuffix: n.piholeSuffix,
     piholeManaged: (n.piholeManaged || []).filter((m) => m && m.mac),
     piholeSkipped: Object.entries(n.piholeOverrides || {}).filter(([, o]) => o.skip).map(([mac]) => mac),
@@ -300,6 +300,11 @@ function cleanNet(b) {
     const v = String(b.haUrl || '').trim().replace(/\/+$/, '');
     if (v && !/^https?:\/\/[^\s/]+(:\d+)?$/.test(v)) throw new Error('Home Assistant\u2019s address should look like http://homeassistant.local:8123');
     n.haUrl = v;
+  }
+  if ('haLinkUrl' in b) {   // the address the links on the page open (e.g. the outside one); checks still use haUrl
+    const v = String(b.haLinkUrl || '').trim().replace(/\/+$/, '');
+    if (v && !/^https?:\/\/[^\s/]+(:\d+)?$/.test(v)) throw new Error('Home Assistant\u2019s link address should look like https://ha.example.com');
+    n.haLinkUrl = v;
   }
   if (typeof b.haToken === 'string' && b.haToken.trim()) n.haToken = b.haToken.trim().slice(0, 600);
   if ('piholeUrl' in b) {

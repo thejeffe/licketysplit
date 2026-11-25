@@ -359,7 +359,7 @@ function adviceFor(f, devices) {
 // Where to go and fix a problem: { href, label } (the page that shows or fixes it), or null. Pages on the LAN.
 function linkFor(f, devices, net, c) {
   const id = f.id, t = f.title || '', after = id.slice(id.indexOf(':') + 1);
-  const ha = (net && net.haUrl || '').replace(/\/+$/, ''), pve = (c && c.pveUrl || '').replace(/\/+$/, ''),
+  const ha = (net && (net.haLinkUrl || net.haUrl) || '').replace(/\/+$/, ''),   // links open the link address when there is one pve = (c && c.pveUrl || '').replace(/\/+$/, ''),
     pihole = (net && net.piholeUrl || '').replace(/\/+$/, ''), printer = (c && c.printerUrl || '').replace(/\/+$/, '');
   const ent = (e) => (ha && /^[a-z_]+\.[a-z0-9_]+$/.test(e) ? { href: ha + '/history?entity_id=' + encodeURIComponent(e), label: 'Open in Home Assistant' } : ha ? { href: ha, label: 'Open Home Assistant' } : null);
   if (/^(lock|door|garage|ring|ringbatt):/.test(id)) return ent(after);

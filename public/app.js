@@ -475,7 +475,7 @@ $('setBtn').addEventListener('click', () => {
   $('sToken').textContent = S.tokenSet ? 'A GitHub token is set (private repos work).' : 'No GitHub token set: the repos must be public (or set GITHUB_TOKEN in /etc/licketysplit.env).';
   const n = S.net || {};
   $('nOn').checked = !!n.enabled; $('nSubnet').value = n.subnet || ''; $('nSubnet').placeholder = n.autoSubnet || '192.168.1.0/24';
-  $('nDns').value = n.dns || ''; $('nHaUrl').value = n.haUrl || ''; $('nHaToken').value = '';
+  $('nDns').value = n.dns || ''; $('nHaUrl').value = n.haUrl || ''; $('nHaLink').value = n.haLinkUrl || ''; $('nHaToken').value = '';
   $('nHaToken').placeholder = n.haTokenSet ? 'Set (leave blank to keep it)' : 'Paste a token';
   $('nPiUrl').value = n.piholeUrl || ''; $('nPiPw').value = ''; $('nPiNames').checked = !!n.piholeNames; $('nPiSuffix').value = n.piholeSuffix || 'lan';
   $('nPiPw').placeholder = n.piholePasswordSet ? 'Set (leave blank to keep it)' : 'Pi-hole\u2019s password';
@@ -530,7 +530,7 @@ $('sRestart').addEventListener('click', async () => {
 $('setForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   try {
-    await api('PUT', 'api/settings', { owner: $('sOwner').value, net: { enabled: $('nOn').checked, subnet: $('nSubnet').value, dns: $('nDns').value, haUrl: $('nHaUrl').value, haToken: $('nHaToken').value, piholeUrl: $('nPiUrl').value, piholePassword: $('nPiPw').value, piholeNames: $('nPiNames').checked, piholeSuffix: $('nPiSuffix').value || 'lan' },
+    await api('PUT', 'api/settings', { owner: $('sOwner').value, net: { enabled: $('nOn').checked, subnet: $('nSubnet').value, dns: $('nDns').value, haUrl: $('nHaUrl').value, haLinkUrl: $('nHaLink').value, haToken: $('nHaToken').value, piholeUrl: $('nPiUrl').value, piholePassword: $('nPiPw').value, piholeNames: $('nPiNames').checked, piholeSuffix: $('nPiSuffix').value || 'lan' },
       ping: { url: $('pUrl').value, every: +$('pEvery').value, clear: $('pClear').checked },
       speed: { every: +$('spEvery').value, minDown: +$('spDown').value, minUp: +$('spUp').value },
       monitor: { enabled: $('mOn').checked, every: +$('mEvery').value, to: $('mTo').value, from: $('mFrom').value, password: $('mPw').value, notifyNew: $('mNew').checked, notifyClear: $('mClear').checked,
