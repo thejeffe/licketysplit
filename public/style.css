@@ -35,7 +35,7 @@ select{background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
 label{display:grid;gap:4px;font-size:13px;color:var(--muted);min-width:0}
 
 /* lists of rows (devices and firmware): one grid per row, so columns always line up inside a row */
-.list{display:grid;gap:8px}
+.list{display:grid;gap:8px;grid-template-columns:minmax(0,1fr)}
 .row{display:grid;gap:4px 12px;align-items:center;padding:10px 12px;border:1px solid var(--rule);border-radius:10px;background:var(--row);min-width:0}
 .row > *{min-width:0}
 .row b{font-weight:600}
@@ -279,3 +279,28 @@ dialog[open]{margin:max(12px, env(safe-area-inset-top, 0px)) auto auto}
 .devlink{color:inherit;text-decoration:none}.devlink:hover{text-decoration:underline}
 .devhost{color:inherit}
 .fixlink{white-space:nowrap;font-weight:600;color:var(--accent)}
+
+/* Network tab: summary tiles, one-line devices that open for the details */
+.dash{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px;margin:4px 0 10px}
+.dash .tile{display:grid;gap:1px;text-align:left;padding:9px 11px;border-radius:10px;background:var(--row);border:1px solid var(--rule);color:var(--ink)}
+.dash .tile b{font:italic 700 24px/1 var(--display)}
+.dash .tile span{font-size:13px;color:var(--ink)}
+.dash .tile small{font-size:11px;color:var(--muted)}
+.dash .tile.warn b{color:var(--accent)}
+.dash .tile.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.dash .tile:disabled{opacity:1;cursor:default}
+.dnsd>summary,.ndd>summary{cursor:pointer;list-style:none}
+.dnsd>summary::-webkit-details-marker,.ndd>summary::-webkit-details-marker{display:none}
+.dnsd>summary{font-size:13px;color:var(--muted);padding:6px 0}
+.dnsd .more{color:var(--accent);white-space:nowrap}
+.ndd{border-bottom:1px solid var(--rule)}
+.ndd>summary{display:flex;gap:8px;align-items:center;padding:8px 2px;min-width:0}
+.ndd>summary b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.ndd>summary .badge{flex:none}
+.ndd>summary .ip{margin-left:auto;font:12px var(--mono);color:var(--muted);white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.off-x{display:none!important}
+.ndd>.row{min-width:0;overflow-wrap:anywhere}
+.ndd[open]>summary{background:var(--row);border-radius:8px}
+.ndd.gone>summary b{color:var(--muted)}
+.ndd>.row{margin:4px 0 8px}
+.ndd .addr{overflow-wrap:anywhere;min-width:0}

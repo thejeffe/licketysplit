@@ -168,9 +168,10 @@ function netRow(h) {
     : nm.suggest ? `<div class="upd"><b>Suggested name:</b> <span class="mono">${esc(nm.suggest)}</span> <span class="muted">(not in Pi-hole${NET.settings.piholeNames ? ' yet: added at the next check' : ''})</span></div>` : '';
   const q = h.queries ? `${h.queries.toLocaleString()} DNS queries${h.lastQuery ? ', last ' + ago(h.lastQuery) : ''}` : '';
   const addr = [h.ip || h.ipv6, ...names, h.mac, q].filter(Boolean).map(esc).join('<br>');
-  return `<div class="row nd${h.online ? '' : ' gone'}"><div><b>${esc(nameOf(h))}</b>${badges.join('')}
+  const key = badges.find((b) => /class="badge new"/.test(b)) ? '<span class="badge new">update</span>' : !h.online ? '<span class="badge">offline</span>' : h.matter ? `<span class="badge matter">${h.thread ? 'Thread' : 'Matter'}</span>` : '';
+  return `<details class="ndd${h.online ? '' : ' gone'}"><summary><b>${esc(nameOf(h))}</b>${key}<span class="ip">${esc(h.ip || (h.ipv6 ? 'IPv6' : ''))}</span></summary><div class="row nd${h.online ? '' : ' gone'}"><div><b>${esc(nameOf(h))}</b>${badges.join('')}
     <small>${esc([h.area, h.desc].filter(Boolean).join(' · ') || 'Nothing announced')}</small>${upd}${dnsLine}</div>
-    <div class="addr">${addr}${act ? '<div style="margin-top:6px">' + act + '</div>' : ''}</div></div>`;
+    <div class="addr">${addr}${act ? '<div style="margin-top:6px">' + act + '</div>' : ''}</div></div></details>`;
 }
 // Pi-hole: how much each device asks, what gets blocked, and the names Lickety Split keeps in Pi-hole
 function renderDns() {
@@ -203,7 +204,9 @@ function renderDns() {
       + (sync && sync.error ? ` · <span class="off">${esc(sync.error)}</span>` : '');
     html = html ? html.replace(/<\/div>$/, `<p class="note" style="margin:6px 0 0">${line}</p></div>`) : `<p class="note">${line}</p>`;
   }
-  $('dnsBox').innerHTML = html;
+  const sumLine = d ? `Pi-hole · last 24 h: ${Number(d.total || 0).toLocaleString()} queries, ${(+d.percent || 0).toFixed(1)}% blocked, ${Number(d.clients || 0).toLocaleString()} devices` : 'Pi-hole names';
+  const wasOpen = $('dnsBox').querySelector('details') && $('dnsBox').querySelector('details').open;
+  $('dnsBox').innerHTML = html ? `<details class="dnsd"${wasOpen ? ' open' : ''}><summary>${sumLine} <span class="more">details ▾</span></summary>${html}</details>` : '';
 }
 async function nameAction(ev) {
   const b = ev.target.closest('button[data-name]'); if (!b) return;
@@ -249,9 +252,32 @@ function renderPing() {
   $('pingLog').innerHTML = `<div class="log">${lines.join('') || 'No pings yet.'}</div>`;
 }
 
+let netView = '';   // a summary tile's view: '', 'new', 'upd', 'off'
+// an update to install: the same rule as the badges (Lickety Split's own firmware newer than the device's, or an update the device reports)
+const isUpd = (h) => {
+  if (h.group === 'licketysplit') { const f = S.firmware.find((x) => x.id === h.fw), cur = f && f.current; return !!(cur && h.version && h.version !== cur.version && !String(h.version).startsWith(cur.version)); }
+  return !!(h.update && h.update.available);
+};
+const inView = (h) => !netView || (netView === 'new' ? h.firstSeen > Date.now() - 86400000 : netView === 'upd' ? isUpd(h) : netView === 'off' ? !h.online : true);
+function renderDash() {
+  const r = NET.result, hs = (r && r.hosts) || [], d = r && r.dnsStats, p = NET.ping;
+  if (!r) { $('netDash').innerHTML = ''; return; }
+  const on = hs.filter((h) => h.online).length, nw = hs.filter((h) => h.firstSeen > Date.now() - 86400000).length,
+    up = hs.filter(isUpd).length, off = hs.length - on;
+  const pingPct = p && p.ok + p.fail ? (p.fail ? (Math.floor(p.ok / (p.ok + p.fail) * 1000) / 10).toFixed(1) : '100') + '%' : '—';
+  const tile = (v, big, label, sub, warn) => `<button type="button" class="tile${v && netView === v ? ' on' : ''}${warn ? ' warn' : ''}" data-view="${v}"${v ? '' : ' disabled'}><b>${big}</b><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</button>`;
+  $('netDash').innerHTML = tile('', on, 'online', `of ${hs.length} known`)
+    + tile('new', nw, 'new today', 'first seen in 24 h', nw > 0)
+    + tile('upd', up, 'updates', 'waiting to install', up > 0)
+    + tile('off', off, 'offline', 'known, not answering')
+    + (d ? tile('', (+d.percent || 0).toFixed(0) + '%', 'blocked', Number(d.total || 0).toLocaleString() + ' DNS queries') : '')
+    + (p ? tile('', pingPct, 'health ping', 'last 24 h', p.fail > 0) : '');
+}
+$('netDash').addEventListener('click', (ev) => { const b = ev.target.closest('button[data-view]'); if (!b || b.disabled) return; netView = netView === b.dataset.view ? '' : b.dataset.view; renderNet(); });
+
 function renderNet() {
   if (!NET) return;
-  renderDns(); renderPing();
+  renderDns(); renderPing(); renderDash();
   const st = NET.settings, r = NET.result, q = $('netFilter').value.trim().toLowerCase();
   $('netCount').textContent = r ? String(r.hosts.filter((h) => h.online).length) : '';
   const src = r && r.sources ? Object.entries({ 'Home Assistant': r.sources.ha, 'Pi-hole': r.sources.pihole || 'not set up', mDNS: r.sources.mdns, DNS: r.sources.dns })
@@ -265,9 +291,11 @@ function renderNet() {
   for (const d of $('netList').querySelectorAll('details[data-g]')) open[d.dataset.g] = d.open;
   $('netList').innerHTML = GROUPS.map((g) => {
     const all = r.hosts.filter((h) => h.group === g.id);
-    const list = q ? all.filter((h) => [nameOf(h), h.desc, h.area, h.ip, h.ipv6, h.dns, h.mdns, h.mac, h.update && h.update.how, ((NET.names || {})[h.mac] || {}).suggest, ((NET.names || {})[h.mac] || {}).dns].join(' ').toLowerCase().includes(q)) : all;
-    if (!all.length) return '';
-    const isOpen = g.id in open ? open[g.id] : true;
+    const list0 = q ? all.filter((h) => [nameOf(h), h.desc, h.area, h.ip, h.ipv6, h.dns, h.mdns, h.mac, h.update && h.update.how, ((NET.names || {})[h.mac] || {}).suggest, ((NET.names || {})[h.mac] || {}).dns].join(' ').toLowerCase().includes(q)) : all;
+    const list = list0.filter(inView);
+    if (!all.length || (netView && !list.length)) return '';
+    const isOpen = netView ? true : g.id in open ? open[g.id] : false;
+    const offN = all.filter((h) => !h.online).length, updN = all.filter(isUpd).length;
     let rows;
     if (g.id === 'home') {             // by maker: all the TP-Link ones together, and so on
       const by = {};
@@ -275,7 +303,7 @@ function renderNet() {
       rows = Object.keys(by).sort((a, b) => (a === 'Other makers') - (b === 'Other makers') || by[b].length - by[a].length || a.localeCompare(b))
         .map((k) => `<div class="sub-h">${esc(k)} · ${by[k].length}</div>` + by[k].map(netRow).join('')).join('');
     } else rows = list.map(netRow).join('');
-    return `<details class="grp" data-g="${g.id}" ${isOpen || q ? 'open' : ''}><summary>${esc(g.title)} <span class="n">${q ? list.length + ' of ' : ''}${all.length}</span></summary>
+    return `<details class="grp" data-g="${g.id}" ${isOpen || q ? 'open' : ''}><summary>${esc(g.title)} <span class="n">${q || netView ? list.length + ' of ' : ''}${all.length}${offN ? ` · ${offN} offline` : ''}${updN ? ` · ${updN} update${updN > 1 ? 's' : ''}` : ''}</span></summary>
       <p class="note">${esc(g.note)}</p><div class="list">${rows || '<div class="empty">Nothing matches.</div>'}</div></details>`;
   }).join('');
 }
@@ -391,7 +419,7 @@ function nextWhen(t) {
 function renderSpeed() {
   const sp = SPEED; if (!sp) return;
   const on = sp.every > 0 || (sp.history && sp.history.length);
-  $('speedBox').hidden = !on; if (!on) return;
+  $('speedBox').classList.toggle('off-x', !on); if (!on) return;   // (the tab switcher owns `hidden`)
   const h = sp.history || [], l = sp.last;
   $('speedNote').innerHTML = (l ? `<b>↓ ${mbps(l.down)} Mbps</b> · <b>↑ ${mbps(l.up)} Mbps</b> · ${l.ping} ms (±${l.jitter})${l.loss ? ` · ${l.loss}% lost` : ''} · ${ago(l.t)}`
       + (l.server ? ` · <span title="Speedtest by Ookla">${esc(l.server)}</span>` : '') + (l.url ? ` · <a href="${esc(l.url)}" target="_blank" rel="noopener">result</a>` : '') : 'No test yet.')
